@@ -12,7 +12,7 @@ export class RedisHealthService {
     try {
       const pingResult = await this.redisService.ping();
       const client = this.redisService.getClient();
-      
+
       return {
         status: 'up',
         info: {

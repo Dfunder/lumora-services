@@ -51,9 +51,13 @@ export class QueueService {
   }
 
   async processCampaignCreatedEvent(data: ContractEventData) {
-    return await this.contractEventsQueue.add('process-campaign-created', data, {
-      ...this.config.defaultJobOptions,
-    });
+    return await this.contractEventsQueue.add(
+      'process-campaign-created',
+      data,
+      {
+        ...this.config.defaultJobOptions,
+      },
+    );
   }
 
   async processCampaignFundedEvent(data: ContractEventData) {
@@ -116,31 +120,49 @@ export class QueueService {
 
   private async getEmailQueueStats() {
     return {
-      waiting: await this.emailQueue.getWaiting().then(jobs => jobs.length),
-      active: await this.emailQueue.getActive().then(jobs => jobs.length),
-      completed: await this.emailQueue.getCompleted().then(jobs => jobs.length),
-      failed: await this.emailQueue.getFailed().then(jobs => jobs.length),
-      delayed: await this.emailQueue.getDelayed().then(jobs => jobs.length),
+      waiting: await this.emailQueue.getWaiting().then((jobs) => jobs.length),
+      active: await this.emailQueue.getActive().then((jobs) => jobs.length),
+      completed: await this.emailQueue
+        .getCompleted()
+        .then((jobs) => jobs.length),
+      failed: await this.emailQueue.getFailed().then((jobs) => jobs.length),
+      delayed: await this.emailQueue.getDelayed().then((jobs) => jobs.length),
     };
   }
 
   private async getContractEventsQueueStats() {
     return {
-      waiting: await this.contractEventsQueue.getWaiting().then(jobs => jobs.length),
-      active: await this.contractEventsQueue.getActive().then(jobs => jobs.length),
-      completed: await this.contractEventsQueue.getCompleted().then(jobs => jobs.length),
-      failed: await this.contractEventsQueue.getFailed().then(jobs => jobs.length),
-      delayed: await this.contractEventsQueue.getDelayed().then(jobs => jobs.length),
+      waiting: await this.contractEventsQueue
+        .getWaiting()
+        .then((jobs) => jobs.length),
+      active: await this.contractEventsQueue
+        .getActive()
+        .then((jobs) => jobs.length),
+      completed: await this.contractEventsQueue
+        .getCompleted()
+        .then((jobs) => jobs.length),
+      failed: await this.contractEventsQueue
+        .getFailed()
+        .then((jobs) => jobs.length),
+      delayed: await this.contractEventsQueue
+        .getDelayed()
+        .then((jobs) => jobs.length),
     };
   }
 
   private async getAnalyticsQueueStats() {
     return {
-      waiting: await this.analyticsQueue.getWaiting().then(jobs => jobs.length),
-      active: await this.analyticsQueue.getActive().then(jobs => jobs.length),
-      completed: await this.analyticsQueue.getCompleted().then(jobs => jobs.length),
-      failed: await this.analyticsQueue.getFailed().then(jobs => jobs.length),
-      delayed: await this.analyticsQueue.getDelayed().then(jobs => jobs.length),
+      waiting: await this.analyticsQueue
+        .getWaiting()
+        .then((jobs) => jobs.length),
+      active: await this.analyticsQueue.getActive().then((jobs) => jobs.length),
+      completed: await this.analyticsQueue
+        .getCompleted()
+        .then((jobs) => jobs.length),
+      failed: await this.analyticsQueue.getFailed().then((jobs) => jobs.length),
+      delayed: await this.analyticsQueue
+        .getDelayed()
+        .then((jobs) => jobs.length),
     };
   }
 }

@@ -16,16 +16,21 @@ export class ContractEventsProcessor {
 
   @Process('process-donation')
   async handleDonationEvent(job: Job<ContractEventData>) {
-    this.logger.log(`Processing donation event ${job.id} - TX: ${job.data.transactionHash}`);
-    
+    this.logger.log(
+      `Processing donation event ${job.id} - TX: ${job.data.transactionHash}`,
+    );
+
     try {
       // Future implementation: Process donation, update database, trigger notifications
       this.logger.log(`Donation event processed: ${job.data.transactionHash}`);
       this.logger.debug('Event data:', job.data.eventData);
-      
+
       return { success: true, processed: true };
     } catch (error) {
-      this.logger.error(`Failed to process donation event ${job.data.transactionHash}`, error);
+      this.logger.error(
+        `Failed to process donation event ${job.data.transactionHash}`,
+        error,
+      );
       throw error;
     }
   }
@@ -33,14 +38,19 @@ export class ContractEventsProcessor {
   @Process('process-campaign-created')
   async handleCampaignCreated(job: Job<ContractEventData>) {
     this.logger.log(`Processing campaign created event ${job.id}`);
-    
+
     try {
       // Future implementation: Index new campaign, send notifications
-      this.logger.log(`Campaign created event processed: ${job.data.transactionHash}`);
-      
+      this.logger.log(
+        `Campaign created event processed: ${job.data.transactionHash}`,
+      );
+
       return { success: true, processed: true };
     } catch (error) {
-      this.logger.error(`Failed to process campaign created event ${job.data.transactionHash}`, error);
+      this.logger.error(
+        `Failed to process campaign created event ${job.data.transactionHash}`,
+        error,
+      );
       throw error;
     }
   }
@@ -48,14 +58,19 @@ export class ContractEventsProcessor {
   @Process('process-campaign-funded')
   async handleCampaignFunded(job: Job<ContractEventData>) {
     this.logger.log(`Processing campaign funded event ${job.id}`);
-    
+
     try {
       // Future implementation: Update campaign status, send notifications to creator
-      this.logger.log(`Campaign funded event processed: ${job.data.transactionHash}`);
-      
+      this.logger.log(
+        `Campaign funded event processed: ${job.data.transactionHash}`,
+      );
+
       return { success: true, processed: true };
     } catch (error) {
-      this.logger.error(`Failed to process campaign funded event ${job.data.transactionHash}`, error);
+      this.logger.error(
+        `Failed to process campaign funded event ${job.data.transactionHash}`,
+        error,
+      );
       throw error;
     }
   }
@@ -63,14 +78,19 @@ export class ContractEventsProcessor {
   @Process('process-withdrawal')
   async handleWithdrawal(job: Job<ContractEventData>) {
     this.logger.log(`Processing withdrawal event ${job.id}`);
-    
+
     try {
       // Future implementation: Process withdrawal, update balances
-      this.logger.log(`Withdrawal event processed: ${job.data.transactionHash}`);
-      
+      this.logger.log(
+        `Withdrawal event processed: ${job.data.transactionHash}`,
+      );
+
       return { success: true, processed: true };
     } catch (error) {
-      this.logger.error(`Failed to process withdrawal event ${job.data.transactionHash}`, error);
+      this.logger.error(
+        `Failed to process withdrawal event ${job.data.transactionHash}`,
+        error,
+      );
       throw error;
     }
   }
