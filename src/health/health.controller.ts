@@ -10,7 +10,6 @@ export class HealthController {
   ) {}
 
   @Get()
-
   async checkHealth() {
     const redisHealth = await this.redisHealthService.checkHealth();
     const queueStats = await this.queueService.getQueueStats();
