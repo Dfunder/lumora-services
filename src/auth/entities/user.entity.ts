@@ -14,6 +14,9 @@ export class User {
   @Column({ unique: true })
   walletAddress: string;
 
+  @Column({ default: 'user' })
+  role: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

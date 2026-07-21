@@ -6,7 +6,7 @@ import {
 import { StrKey } from '@stellar/stellar-sdk';
 
 export function IsStellarAddress(validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
+  return function (object: object, propertyName: string) {
     registerDecorator({
       name: 'isStellarAddress',
       target: object.constructor,
@@ -26,7 +26,7 @@ export function IsStellarAddress(validationOptions?: ValidationOptions) {
 }
 
 export function IsValidAssetCode(validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
+  return function (object: object, propertyName: string) {
     registerDecorator({
       name: 'isValidAssetCode',
       target: object.constructor,

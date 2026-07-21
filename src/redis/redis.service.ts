@@ -1,4 +1,10 @@
-import { Injectable, Inject, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import Redis from 'ioredis';
 import redisConfig from '../config/redis.config';
@@ -45,7 +51,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.redis;
   }
 
-  async set(key: string, value: string | number | Buffer, ttl?: number): Promise<void> {
+  async set(
+    key: string,
+    value: string | number | Buffer,
+    ttl?: number,
+  ): Promise<void> {
     if (ttl) {
       await this.redis.setex(key, ttl, value);
     } else {
@@ -76,6 +86,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async hgetall(key: string): Promise<Record<string, string>> {
     return await this.redis.hgetall(key);
+  }
+
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    return await this.redis.sadd(key, ...members);
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    return await this.redis.srem(key, ...members);
+  }
+
+  async smembers(key: string): Promise<string[]> {
+    return await this.redis.smembers(key);
   }
 
   async ping(): Promise<string> {
