@@ -1,12 +1,8 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Controller, Get, Post, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { ChallengeDto } from './dto/challenge.dto';
 import { VerifyAuthDto } from './dto/verify-auth.dto';
-import { RefreshAuthDto } from './dto/refresh-auth.dto';
-import { LogoutAuthDto } from './dto/logout-auth.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { CurrentUser } from './decorators/current-user.decorator';
 
 @Throttle({
   default: {
@@ -17,6 +13,17 @@ import { CurrentUser } from './decorators/current-user.decorator';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Get('challenge')
+  @Throttle({
+    default: {
+      limit: 5,
+      ttl: 60000,
+    },
+  })
+  challenge(@Query() dto: ChallengeDto) {
+    return this.authService.challenge(dto.walletAddress);
+  }
 
   @Post('verify')
   @HttpCode(HttpStatus.OK)
