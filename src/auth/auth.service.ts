@@ -23,6 +23,17 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
+  async challenge(walletAddress: string): Promise<{ challenge: string }> {
+    const nonce = crypto.randomBytes(32).toString('hex');
+    const timestamp = Math.floor(Date.now() / 1000);
+    const challengeString = `stellaraid:login:${nonce}:${timestamp}`;
+
+    const challengeKey = this.getChallengeKey(walletAddress);
+    await this.redisService.set(challengeKey, challengeString, this.CHALLENGE_TTL);
+
+    return { challenge: challengeString };
+  }
+
   async verify(
     dto: VerifyAuthDto,
   ): Promise<{ accessToken: string; refreshToken: string }> {

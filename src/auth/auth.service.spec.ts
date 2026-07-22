@@ -424,6 +424,50 @@ describe('AuthService', () => {
     });
   });
 
+  describe('challenge', () => {
+    beforeEach(() => {
+      redisService.set.mockResolvedValue(undefined);
+    });
+
+    it('returns a challenge in the format stellaraid:login:<nonce>:<timestamp>', async () => {
+      const result = await service.challenge(walletAddress);
+
+      expect(result.challenge).toMatch(
+        /^stellaraid:login:[0-9a-f]{64}:\d+$/,
+      );
+    });
+
+    it('stores the challenge in Redis with a 5-minute TTL', async () => {
+      const result = await service.challenge(walletAddress);
+
+      expect(redisService.set).toHaveBeenCalledWith(
+        'auth:challenge:' + walletAddress,
+        result.challenge,
+        300,
+      );
+    });
+
+    it('generates a unique nonce on each call', async () => {
+      const first = await service.challenge(walletAddress);
+      const second = await service.challenge(walletAddress);
+
+      expect(first.challenge).not.to(second.challenge);
+    });
+
+    it('an expired challenge returns null from Redis and cannot be verified', async () => {
+      await service.challenge(walletAddress);
+
+      redisService.get.mockResolvedValue(null);
+
+      const err = await service
+        .verify({ walletAddress, signedChallenge })
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect(reason(err)).toBe('expired');
+    });
+  });
+
   describe('findOrCreateUser', () => {
     it('returns existing user without saving when found', async () => {
       userRepository.findOne.mockResolvedValue(mockUser);
