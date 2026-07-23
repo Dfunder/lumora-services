@@ -8,6 +8,12 @@ import {
 } from 'typeorm';
 import { Campaign } from '../../campaign/entities/campaign.entity';
 
+export enum KYCStatus {
+  UNVERIFIED = 'UNVERIFIED',
+  VERIFIED = 'VERIFIED',
+  REJECTED = 'REJECTED',
+}
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -28,6 +34,21 @@ export class User {
   @Column({ default: 'user' })
   role: string;
 
+  @Column({
+    type: 'enum',
+    enum: KYCStatus,
+    default: KYCStatus.UNVERIFIED,
+  })
+  kycStatus: KYCStatus;
+
+  @Column({ nullable: true })
+  isSuspended: boolean;
+
+  @Column({ nullable: true })
+  suspensionReason: string;
+
+  @Column({ nullable: true })
+  email: string;
   @Column({ default: 'none' })
   kycStatus: string;
 
