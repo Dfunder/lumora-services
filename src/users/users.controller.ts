@@ -1,28 +1,27 @@
-import { Controller, Get, Patch, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { PublicProfileDto } from './dto/public-profile.dto';
+import { AdminSearchResponseDto } from './dto/admin-search-result.dto';
+import { AdminSearchQueryDto } from './dto/admin-search-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { Request } from 'express';
+import { AdminGuard } from '../common/guards/admin.guard';
 
-interface RequestWithUser extends Request {
-  user: { sub: string };
-}
-
-@Controller('users')
-@UseGuards(JwtAuthGuard)
+@Controller()
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @Get('me')
-  getProfile(@Req() req: RequestWithUser) {
-    return this.usersService.getProfile(req.user.sub);
+  @Get('users/:walletAddress')
+  getPublicProfile(
+    @Param('walletAddress') walletAddress: string,
+  ): Promise<PublicProfileDto> {
+    return this.usersService.getPublicProfile(walletAddress);
   }
 
-  @Patch('me')
-  updateProfile(
-    @Req() req: RequestWithUser,
-    @Body() updateUserDto: UpdateUserDto,
-  ) {
-    return this.usersService.updateProfile(req.user.sub, updateUserDto);
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('admin/users')
+  searchUsers(
+    @Query() query: AdminSearchQueryDto,
+  ): Promise<AdminSearchResponseDto> {
+    return this.usersService.searchUsers(query);
   }
 }

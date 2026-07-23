@@ -1,8 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { PublicProfileDto } from './dto/public-profile.dto';
+import {
+  AdminSearchResultItemDto,
+  AdminSearchResponseDto,
+} from './dto/admin-search-result.dto';
+import { AdminSearchQueryDto } from './dto/admin-search-query.dto';
 
 @Injectable()
 export class UsersService {
@@ -11,39 +16,51 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
   ) {}
 
-  async getProfile(userId: string) {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
+  async getPublicProfile(walletAddress: string): Promise<PublicProfileDto> {
+    const user = await this.userRepository.findOne({
+      where: { walletAddress },
+      relations: ['campaigns'],
+    });
+
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    // Mock computed stats for now
-    const computedStats = {
-      totalRaised: 0,
-      totalDonated: 0,
-      campaignCount: 0,
-    };
+    const campaignCount = user.campaigns?.length ?? 0;
+    const totalRaised =
+      user.campaigns?.reduce((sum, c) => sum + Number(c.raisedAmount), 0) ?? 0;
 
-    return {
-      ...user,
-      ...computedStats,
-    };
+    return PublicProfileDto.fromUser(user, campaignCount, totalRaised);
   }
 
-  async updateProfile(userId: string, updateUserDto: UpdateUserDto) {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+  async searchUsers(
+    query: AdminSearchQueryDto,
+  ): Promise<AdminSearchResponseDto> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const searchTerm = query.q ?? '';
 
-    // Update only allowed fields
-    if (updateUserDto.displayName !== undefined) user.displayName = updateUserDto.displayName;
-    if (updateUserDto.bio !== undefined) user.bio = updateUserDto.bio;
-    if (updateUserDto.avatarUrl !== undefined) user.avatarUrl = updateUserDto.avatarUrl;
-    if (updateUserDto.socialLinks !== undefined) user.socialLinks = updateUserDto.socialLinks;
+    const where = searchTerm ? { walletAddress: ILike(`${searchTerm}%`) } : {};
 
-    await this.userRepository.save(user);
+    const [users, total] = await this.userRepository.findAndCount({
+      where,
+      relations: ['campaigns'],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      order: { createdAt: 'DESC' },
+    });
 
-    return this.getProfile(userId);
+    const data = users.map((user) => {
+      const campaignCount = user.campaigns?.length ?? 0;
+      return AdminSearchResultItemDto.fromUser(user, campaignCount);
+    });
+
+    return {
+      data,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 }
