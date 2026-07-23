@@ -46,6 +46,12 @@ describe('AuthService', () => {
     id: 'uuid-1',
     walletAddress,
     role: 'user',
+    displayName: null,
+    avatarUrl: null,
+    bio: null,
+    verifiedStatus: false,
+    kycStatus: 'not_submitted',
+    campaigns: [],
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -432,9 +438,7 @@ describe('AuthService', () => {
     it('returns a challenge in the format stellaraid:login:<nonce>:<timestamp>', async () => {
       const result = await service.challenge(walletAddress);
 
-      expect(result.challenge).toMatch(
-        /^stellaraid:login:[0-9a-f]{64}:\d+$/,
-      );
+      expect(result.challenge).toMatch(/^stellaraid:login:[0-9a-f]{64}:\d+$/);
     });
 
     it('stores the challenge in Redis with a 5-minute TTL', async () => {
@@ -451,7 +455,7 @@ describe('AuthService', () => {
       const first = await service.challenge(walletAddress);
       const second = await service.challenge(walletAddress);
 
-      expect(first.challenge).not.to(second.challenge);
+      expect(first.challenge).not.toBe(second.challenge);
     });
 
     it('an expired challenge returns null from Redis and cannot be verified', async () => {
