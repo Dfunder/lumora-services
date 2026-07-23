@@ -12,6 +12,7 @@ import { BullBoardConfigModule } from './bull-board/bull-board.module';
 import { HealthModule } from './health/health.module';
 import { DonationModule } from './donation/donation.module';
 import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 import { User } from './auth/entities/user.entity';
 import redisConfig from './config/redis.config';
 import bullConfig from './config/bull.config';
@@ -37,6 +38,7 @@ import bullConfig from './config/bull.config';
     ...(process.env.NODE_ENV !== 'production' ? [BullBoardConfigModule] : []),
     HealthModule,
     AuthModule,
+    UsersModule,
     DonationModule,
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
