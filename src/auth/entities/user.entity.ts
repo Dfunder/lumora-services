@@ -6,6 +6,12 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+export enum KYCStatus {
+  UNVERIFIED = 'UNVERIFIED',
+  VERIFIED = 'VERIFIED',
+  REJECTED = 'REJECTED',
+}
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -16,6 +22,22 @@ export class User {
 
   @Column({ default: 'user' })
   role: string;
+
+  @Column({
+    type: 'enum',
+    enum: KYCStatus,
+    default: KYCStatus.UNVERIFIED,
+  })
+  kycStatus: KYCStatus;
+
+  @Column({ nullable: true })
+  isSuspended: boolean;
+
+  @Column({ nullable: true })
+  suspensionReason: string;
+
+  @Column({ nullable: true })
+  email: string;
 
   @CreateDateColumn()
   createdAt: Date;

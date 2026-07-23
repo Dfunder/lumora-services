@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { RedisService } from '../redis/redis.service';
+import { RedisService } from '../../redis/redis.service';
 import { AUTH_CONSTANTS } from '../constants/auth.constant';
 
 export type JwtPayload = {
