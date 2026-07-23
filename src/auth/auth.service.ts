@@ -29,7 +29,11 @@ export class AuthService {
     const challengeString = `stellaraid:login:${nonce}:${timestamp}`;
 
     const challengeKey = this.getChallengeKey(walletAddress);
-    await this.redisService.set(challengeKey, challengeString, this.CHALLENGE_TTL);
+    await this.redisService.set(
+      challengeKey,
+      challengeString,
+      this.CHALLENGE_TTL,
+    );
 
     return { challenge: challengeString };
   }

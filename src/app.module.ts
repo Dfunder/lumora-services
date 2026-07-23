@@ -10,10 +10,14 @@ import { QueueModule } from './queues/queue.module';
 import { BullBoardConfigModule } from './bull-board/bull-board.module';
 import { HealthModule } from './health/health.module';
 import { DonationModule } from './donation/donation.module';
+import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
+import { CampaignModule } from './campaign/campaign.module';
 import { User } from './auth/entities/user.entity';
 import { AuditLog } from './auth/entities/audit-log.entity';
 import { SuspensionGuard } from './auth/guards/suspension.guard';
+import { Campaign } from './campaign/entities/campaign.entity';
 import redisConfig from './config/redis.config';
 import bullConfig from './config/bull.config';
 
@@ -27,7 +31,8 @@ import bullConfig from './config/bull.config';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-        entities: [User, AuditLog],
+        entities: [User, AuditLog, Campaign],
+
         synchronize: config.get<string>('NODE_ENV') !== 'production',
       }),
       inject: [ConfigService],
@@ -38,6 +43,8 @@ import bullConfig from './config/bull.config';
     ...(process.env.NODE_ENV !== 'production' ? [BullBoardConfigModule] : []),
     HealthModule,
     AuthModule,
+    CampaignModule,
+    UsersModule,
     DonationModule,
     ThrottlerModule.forRoot([
       {
