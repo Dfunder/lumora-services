@@ -16,9 +16,23 @@ export class User {
   @Column({ unique: true })
   walletAddress: string;
 
+  @Column({ nullable: true })
+  displayName: string;
+
+  @Column({ nullable: true })
+  bio: string;
+
+  @Column({ nullable: true })
+  avatarUrl: string;
+
   @Column({ default: 'user' })
   role: string;
 
+  @Column({ default: 'none' })
+  kycStatus: string;
+
+  @Column({ type: 'jsonb', default: {} })
+  socialLinks: Record<string, string>;
   @Column({ nullable: true, type: 'varchar' })
   displayName: string | null;
 

@@ -13,6 +13,7 @@ import { HealthModule } from './health/health.module';
 import { DonationModule } from './donation/donation.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 import { CampaignModule } from './campaign/campaign.module';
 import { User } from './auth/entities/user.entity';
 import { Campaign } from './campaign/entities/campaign.entity';
