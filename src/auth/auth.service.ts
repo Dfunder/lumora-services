@@ -204,13 +204,27 @@ export class AuthService {
   }
 
   async findOrCreateUser(walletAddress: string): Promise<User> {
+    const adminWallets = process.env.ADMIN_ALLOWLIST
+      ? process.env.ADMIN_ALLOWLIST.split(',').map(w => w.trim().toLowerCase())
+      : [];
+    const isAdmin = adminWallets.includes(walletAddress.toLowerCase());
+    const role = isAdmin ? 'ADMIN' : 'USER';
+
     const existing = await this.userRepository.findOne({
       where: { walletAddress },
     });
-    if (existing) return existing;
+    
+    // If user exists but their role doesn't match allowlist, update it
+    if (existing) {
+      if (existing.role !== role) {
+        existing.role = role;
+        return await this.userRepository.save(existing);
+      }
+      return existing;
+    }
 
     try {
-      const user = this.userRepository.create({ walletAddress });
+      const user = this.userRepository.create({ walletAddress, role });
       return await this.userRepository.save(user);
     } catch (err: unknown) {
       const pgErr = err as Record<string, unknown>;
@@ -218,7 +232,13 @@ export class AuthService {
         const found = await this.userRepository.findOne({
           where: { walletAddress },
         });
-        if (found) return found;
+        if (found) {
+          if (found.role !== role) {
+            found.role = role;
+            return await this.userRepository.save(found);
+          }
+          return found;
+        }
       }
       throw err;
     }
