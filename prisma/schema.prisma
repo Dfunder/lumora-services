@@ -45,30 +45,30 @@ enum MilestoneStatus {
 // All required models with relations, foreign keys, and indices
 
 model User {
-  id            String    @id @default(uuid())
-  walletAddress String    @unique
-  displayName   String?
-  bio           String?
-  avatarUrl     String?
-  role          UserRole  @default(USER)
-  email         String?   @unique
-  kycStatus     String    @default("not_submitted")
-  isSuspended   Boolean   @default(false)
+  id               String   @id @default(uuid())
+  walletAddress    String   @unique
+  displayName      String?
+  bio              String?
+  avatarUrl        String?
+  role             UserRole @default(USER)
+  email            String?  @unique
+  kycStatus        String   @default("not_submitted")
+  isSuspended      Boolean  @default(false)
   suspensionReason String?
-  verifiedStatus Boolean @default(false)
-  socialLinks   Json      @default("{}")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  verifiedStatus   Boolean  @default(false)
+  socialLinks      Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   // Relations
-  campaigns     Campaign[]
-  donations     Donation[]
-  notifications Notification[]
-  reportedDisputes      Dispute[] @relation("DisputeReporter")
-  resolvedDisputes      Dispute[] @relation("DisputeResolver")
-  sentTips      PlatformTip[] @relation("TipSender")
-  receivedTips  PlatformTip[] @relation("TipRecipient")
-  auditLogs     AuditLog[]
+  campaigns               Campaign[]
+  donations               Donation[]
+  notifications           Notification[]
+  reportedDisputes        Dispute[]      @relation("DisputeReporter")
+  resolvedDisputes        Dispute[]      @relation("DisputeResolver")
+  sentTips                PlatformTip[]  @relation("TipSender")
+  receivedTips            PlatformTip[]  @relation("TipRecipient")
+  auditLogs               AuditLog[]
   newsletterSubscriptions Newsletter[]
 
   // Indices for frequently queried fields
@@ -79,26 +79,26 @@ model User {
 }
 
 model Campaign {
-  id           String          @id @default(uuid())
+  id           String         @id @default(uuid())
   creatorId    String
   title        String
   description  String
-  goalAmount   Decimal         @db.Decimal(18, 7)
-  raisedAmount Decimal         @db.Decimal(18, 7) @default(0)
-  currency     String          @default("XLM")
-  status       CampaignStatus  @default(DRAFT)
+  goalAmount   Decimal        @db.Decimal(18, 7)
+  raisedAmount Decimal        @default(0) @db.Decimal(18, 7)
+  currency     String         @default("XLM")
+  status       CampaignStatus @default(DRAFT)
   category     String?
   imageUrl     String?
   endDate      DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   // Relations
-  creator      User            @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  donations    Donation[]
-  milestones   Milestone[]
-  updates      Update[]
-  disputes     Dispute[]
+  creator    User        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  donations  Donation[]
+  milestones Milestone[]
+  updates    Update[]
+  disputes   Dispute[]
 
   // Indices for frequently queried fields
   @@index([creatorId])
@@ -110,21 +110,21 @@ model Campaign {
 }
 
 model Donation {
-  id           String          @id @default(uuid())
-  campaignId   String
-  donorId      String?
-  amount       Decimal         @db.Decimal(18, 7)
-  currency     String          @default("XLM")
-  status       DonationStatus  @default(PENDING)
-  transactionHash String?      @unique
-  message      String?
-  isAnonymous  Boolean         @default(false)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id              String         @id @default(uuid())
+  campaignId      String
+  donorId         String?
+  amount          Decimal        @db.Decimal(18, 7)
+  currency        String         @default("XLM")
+  status          DonationStatus @default(PENDING)
+  transactionHash String?        @unique
+  message         String?
+  isAnonymous     Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   // Relations
-  campaign     Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  donor        User?           @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  donor    User?    @relation(fields: [donorId], references: [id], onDelete: SetNull)
 
   // Indices for frequently queried fields
   @@index([campaignId])
@@ -135,19 +135,19 @@ model Donation {
 }
 
 model Milestone {
-  id           String           @id @default(uuid())
-  campaignId   String
-  title        String
-  description  String
-  amount       Decimal          @db.Decimal(18, 7)
-  status       MilestoneStatus  @default(PENDING)
-  dueDate      DateTime?
-  completedAt  DateTime?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id          String          @id @default(uuid())
+  campaignId  String
+  title       String
+  description String
+  amount      Decimal         @db.Decimal(18, 7)
+  status      MilestoneStatus @default(PENDING)
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   // Relations
-  campaign     Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   // Indices
   @@index([campaignId])
@@ -156,16 +156,16 @@ model Milestone {
 }
 
 model Update {
-  id           String    @id @default(uuid())
-  campaignId   String
-  title        String
-  content      String
-  imageUrl     String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id         String   @id @default(uuid())
+  campaignId String
+  title      String
+  content    String
+  imageUrl   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relations
-  campaign     Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   // Indices
   @@index([campaignId])
@@ -173,17 +173,17 @@ model Update {
 }
 
 model Notification {
-  id           String    @id @default(uuid())
-  userId       String
-  title        String
-  content      String
-  type         String
-  isRead       Boolean   @default(false)
+  id              String   @id @default(uuid())
+  userId          String
+  title           String
+  content         String
+  type            String
+  isRead          Boolean  @default(false)
   relatedEntityId String?
-  createdAt    DateTime  @default(now())
+  createdAt       DateTime @default(now())
 
   // Relations
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Indices
   @@index([userId])
@@ -206,9 +206,9 @@ model Dispute {
   updatedAt    DateTime  @updatedAt
 
   // Relations
-  campaign     Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  reporter     User      @relation("DisputeReporter", fields: [reporterId], references: [id], onDelete: Cascade)
-  resolver     User?     @relation("DisputeResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  reporter User     @relation("DisputeReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolver User?    @relation("DisputeResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
 
   // Indices
   @@index([campaignId])
@@ -218,15 +218,15 @@ model Dispute {
 }
 
 model Newsletter {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  userId       String?
-  isSubscribed Boolean   @default(true)
-  subscribedAt DateTime  @default(now())
+  id             String    @id @default(uuid())
+  email          String    @unique
+  userId         String?
+  isSubscribed   Boolean   @default(true)
+  subscribedAt   DateTime  @default(now())
   unsubscribedAt DateTime?
 
   // Relations
-  user         User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   // Indices
   @@index([email])
@@ -235,18 +235,18 @@ model Newsletter {
 }
 
 model AuditLog {
-  id           String    @id @default(uuid())
-  userId       String?
-  action       String    // e.g., "CAMPAIGN_CREATED", "USER_SUSPENDED", "MILESTONE_APPROVED"
-  entityType   String    // e.g., "Campaign", "User", "Milestone"
-  entityId     String?
-  changes      Json?     // Stores the changes made
-  ipAddress    String?
-  userAgent    String?
-  createdAt    DateTime  @default(now())
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String // e.g., "CAMPAIGN_CREATED", "USER_SUSPENDED", "MILESTONE_APPROVED"
+  entityType String // e.g., "Campaign", "User", "Milestone"
+  entityId   String?
+  changes    Json? // Stores the changes made
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
 
   // Relations
-  user         User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   // Indices - critical for audit and compliance
   @@index([userId])
@@ -256,18 +256,18 @@ model AuditLog {
 }
 
 model PlatformTip {
-  id           String    @id @default(uuid())
-  senderId     String
-  recipientId  String
-  amount       Decimal   @db.Decimal(18, 7)
-  currency     String    @default("XLM")
-  message      String?
-  transactionHash String? @unique
-  createdAt    DateTime  @default(now())
+  id              String   @id @default(uuid())
+  senderId        String
+  recipientId     String
+  amount          Decimal  @db.Decimal(18, 7)
+  currency        String   @default("XLM")
+  message         String?
+  transactionHash String?  @unique
+  createdAt       DateTime @default(now())
 
   // Relations
-  sender       User      @relation("TipSender", fields: [senderId], references: [id], onDelete: Cascade)
-  recipient    User      @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  sender    User @relation("TipSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User @relation("TipRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
 
   // Indices
   @@index([senderId])
