@@ -12,7 +12,6 @@ import { HealthModule } from './health/health.module';
 import { DonationModule } from './donation/donation.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
 import { CampaignModule } from './campaign/campaign.module';
 import { User } from './auth/entities/user.entity';
 import { AuditLog } from './auth/entities/audit-log.entity';
@@ -33,15 +32,13 @@ import bullConfig from './config/bull.config';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-        entities: [User, AuditLog, Campaign],
-
+        entities: [User, AuditLog, Campaign, CampaignDraft],
         synchronize: config.get<string>('NODE_ENV') !== 'production',
       }),
       inject: [ConfigService],
     }),
     RedisModule,
     QueueModule,
-    // Only load Bull Board in development
     ...(process.env.NODE_ENV !== 'production' ? [BullBoardConfigModule] : []),
     HealthModule,
     AuthModule,
