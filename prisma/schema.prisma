@@ -64,8 +64,10 @@ model User {
   campaigns     Campaign[]
   donations     Donation[]
   notifications Notification[]
-  disputes      Dispute[]
+  reportedDisputes      Dispute[] @relation("DisputeReporter")
+  resolvedDisputes      Dispute[] @relation("DisputeResolver")
   sentTips      PlatformTip[] @relation("TipSender")
+  receivedTips  PlatformTip[] @relation("TipRecipient")
   auditLogs     AuditLog[]
   newsletterSubscriptions Newsletter[]
 
@@ -205,8 +207,8 @@ model Dispute {
 
   // Relations
   campaign     Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  reporter     User      @relation(fields: [reporterId], references: [id], onDelete: Cascade)
-  resolver     User?     @relation(fields: [resolvedById], references: [id], onDelete: SetNull)
+  reporter     User      @relation("DisputeReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolver     User?     @relation("DisputeResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
 
   // Indices
   @@index([campaignId])
