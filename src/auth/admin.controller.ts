@@ -20,7 +20,7 @@ import type { JwtPayload } from './guards/jwt-auth.guard';
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, SuspensionGuard, RolesGuard)
-@Roles('admin')
+@Roles('ADMIN')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 

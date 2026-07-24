@@ -17,6 +17,8 @@ import { CampaignModule } from './campaign/campaign.module';
 import { User } from './auth/entities/user.entity';
 import { AuditLog } from './auth/entities/audit-log.entity';
 import { SuspensionGuard } from './auth/guards/suspension.guard';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { RolesGuard } from './auth/guards/roles.guard';
 import { Campaign } from './campaign/entities/campaign.entity';
 import redisConfig from './config/redis.config';
 import bullConfig from './config/bull.config';
@@ -64,6 +66,14 @@ import bullConfig from './config/bull.config';
     {
       provide: APP_GUARD,
       useClass: SuspensionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })

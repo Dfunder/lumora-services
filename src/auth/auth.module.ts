@@ -29,9 +29,7 @@ import { QueueModule } from '../queues/queue.module';
   providers: [
     AuthService,
     AdminService,
-    JwtAuthGuard,
     SuspensionGuard,
-    RolesGuard,
   ],
   exports: [AuthService, AdminService],
 })
