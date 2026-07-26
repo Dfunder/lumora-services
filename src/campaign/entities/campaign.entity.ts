@@ -52,6 +52,9 @@ export class Campaign {
   @Column('decimal', { precision: 18, scale: 7 })
   goalAmount: string;
 
+  @Column('decimal', { precision: 18, scale: 7, default: 0 })
+  raisedAmount: string;
+
   @Column('simple-array')
   acceptedAssets: string[]; // e.g., ['XLM', 'USDC:GA5Z...']
 

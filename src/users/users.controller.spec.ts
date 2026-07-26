@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
+import { AdminSearchQueryDto } from './dto/admin-search-query.dto';
+import { PublicProfileDto } from './dto/public-profile.dto';
+import { AdminSearchResponseDto } from './dto/admin-search-result.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -13,12 +18,17 @@ describe('UsersController', () => {
         {
           provide: UsersService,
           useValue: {
-            getProfile: jest.fn(),
-            updateProfile: jest.fn(),
+            getPublicProfile: jest.fn(),
+            searchUsers: jest.fn(),
           },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: jest.fn(() => true) })
+      .overrideGuard(AdminGuard)
+      .useValue({ canActivate: jest.fn(() => true) })
+      .compile();
 
     controller = module.get<UsersController>(UsersController);
     service = module.get<UsersService>(UsersService);
@@ -28,26 +38,38 @@ describe('UsersController', () => {
     expect(controller).toBeDefined();
   });
 
-  describe('getProfile', () => {
-    it('should return user profile', async () => {
-      const req = { user: { sub: 'user-id' } } as any;
-      const result = { id: 'user-id', displayName: 'Test User' };
-      jest.spyOn(service, 'getProfile').mockResolvedValue(result as any);
+  describe('getPublicProfile', () => {
+    it('should return public profile by wallet address', async () => {
+      const walletAddress = 'GB...';
+      const result: PublicProfileDto = {
+        displayName: 'Test User',
+        avatarUrl: null,
+        bio: 'Bio',
+        verifiedStatus: false,
+        campaignCount: 0,
+        totalRaised: 0,
+      };
+      jest.spyOn(service, 'getPublicProfile').mockResolvedValue(result);
 
-      expect(await controller.getProfile(req)).toBe(result);
-      expect(service.getProfile).toHaveBeenCalledWith('user-id');
+      expect(await controller.getPublicProfile(walletAddress)).toBe(result);
+      expect(service.getPublicProfile).toHaveBeenCalledWith(walletAddress);
     });
   });
 
-  describe('updateProfile', () => {
-    it('should update and return user profile', async () => {
-      const req = { user: { sub: 'user-id' } } as any;
-      const dto = { displayName: 'Updated User' };
-      const result = { id: 'user-id', displayName: 'Updated User' };
-      jest.spyOn(service, 'updateProfile').mockResolvedValue(result as any);
+  describe('searchUsers', () => {
+    it('should return paginated admin search results', async () => {
+      const query: AdminSearchQueryDto = { q: 'GB', page: 1, pageSize: 20 };
+      const result: AdminSearchResponseDto = {
+        data: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+      };
+      jest.spyOn(service, 'searchUsers').mockResolvedValue(result);
 
-      expect(await controller.updateProfile(req, dto)).toBe(result);
-      expect(service.updateProfile).toHaveBeenCalledWith('user-id', dto);
+      expect(await controller.searchUsers(query)).toBe(result);
+      expect(service.searchUsers).toHaveBeenCalledWith(query);
     });
   });
 });
