@@ -34,12 +34,8 @@ export class User {
   @Column({ default: 'user' })
   role: string;
 
-  @Column({
-    type: 'enum',
-    enum: KYCStatus,
-    default: KYCStatus.UNVERIFIED,
-  })
-  kycStatus: KYCStatus;
+  @Column({ type: 'varchar', default: 'not_submitted' })
+  kycStatus: string;
 
   @Column({ nullable: true })
   isSuspended: boolean;
@@ -49,25 +45,12 @@ export class User {
 
   @Column({ nullable: true })
   email: string;
-  @Column({ default: 'none' })
-  kycStatus: string;
 
   @Column({ type: 'jsonb', default: {} })
   socialLinks: Record<string, string>;
-  @Column({ nullable: true, type: 'varchar' })
-  displayName: string | null;
-
-  @Column({ nullable: true, type: 'varchar' })
-  avatarUrl: string | null;
-
-  @Column({ nullable: true, type: 'varchar' })
-  bio: string | null;
 
   @Column({ default: false })
   verifiedStatus: boolean;
-
-  @Column({ default: 'not_submitted' })
-  kycStatus: string;
 
   @OneToMany(() => Campaign, (campaign) => campaign.creator)
   campaigns: Campaign[];

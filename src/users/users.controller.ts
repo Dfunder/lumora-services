@@ -13,12 +13,14 @@ import { AdminSearchResponseDto } from './dto/admin-search-result.dto';
 import { AdminSearchQueryDto } from './dto/admin-search-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../common/guards/admin.guard';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('users')
 @Controller()
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Public()
   @ApiOperation({ summary: 'Get public profile by wallet address' })
   @ApiParam({ name: 'walletAddress', description: 'Stellar wallet public key' })
   @ApiResponse({ status: 200, description: 'Public profile returned', type: PublicProfileDto })
