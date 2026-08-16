@@ -11,7 +11,14 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody, ApiParam, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiBody,
+  ApiParam,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { CampaignsService } from './campaign.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { CreateDraftDto } from './dto/create-draft.dto';
@@ -28,7 +35,10 @@ export class CampaignsController {
   // ─── 1. Publish Campaign ──────────────────────────────────────────────────
   @ApiOperation({ summary: 'Create and publish a new campaign' })
   @ApiBody({ type: CreateCampaignDto })
-  @ApiResponse({ status: 201, description: 'Campaign created and published successfully' })
+  @ApiResponse({
+    status: 201,
+    description: 'Campaign created and published successfully',
+  })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createCampaign(@Req() req: any, @Body() dto: CreateCampaignDto) {
@@ -49,8 +59,13 @@ export class CampaignsController {
   }
 
   // ─── 3. Get User Drafts ───────────────────────────────────────────────────
-  @ApiOperation({ summary: 'Get all campaign drafts for the authenticated user' })
-  @ApiResponse({ status: 200, description: 'List of user drafts returned successfully' })
+  @ApiOperation({
+    summary: 'Get all campaign drafts for the authenticated user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of user drafts returned successfully',
+  })
   @Get('drafts')
   async getUserDrafts(@Req() req: any) {
     const creatorId = req.user.id;
@@ -80,5 +95,25 @@ export class CampaignsController {
   async deleteDraft(@Req() req: any, @Param('id') id: string) {
     const creatorId = req.user.id;
     return await this.campaignsService.deleteDraft(id, creatorId);
+  }
+
+  @ApiOperation({ summary: 'Close a campaign' })
+  @ApiParam({ name: 'id', description: 'Campaign ID to close' })
+  @ApiResponse({ status: 200, description: 'Campaign closed successfully' })
+  @Post(':id/close')
+  @HttpCode(HttpStatus.OK)
+  async closeCampaign(@Req() req: any, @Param('id') id: string) {
+    const creatorId = req.user.id;
+    return await this.campaignsService.closeCampaign(id, creatorId);
+  }
+
+  @ApiOperation({ summary: 'Get all featured campaigns' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of featured campaigns returned successfully',
+  })
+  @Get('featured')
+  async getFeaturedCampaigns() {
+    return await this.campaignsService.getFeaturedCampaigns();
   }
 }

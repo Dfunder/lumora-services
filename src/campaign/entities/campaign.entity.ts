@@ -14,6 +14,8 @@ export enum CampaignStatus {
   PENDING_REVIEW = 'PENDING_REVIEW',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
+  SUSPENDED = 'SUSPENDED',
+  CLOSED = 'CLOSED',
 }
 
 export interface Milestone {
@@ -76,6 +78,9 @@ export class Campaign {
     default: CampaignStatus.ACTIVE,
   })
   status: CampaignStatus;
+
+  @Column({ default: false })
+  isFeatured: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

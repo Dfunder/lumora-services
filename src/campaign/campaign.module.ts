@@ -1,3 +1,5 @@
+import { AdminCampaignsController } from './admin.controller';
+import { PrismaModule } from '../prisma/prisma.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CampaignsController } from './campaign.controller';
@@ -6,8 +8,8 @@ import { Campaign } from './entities/campaign.entity';
 import { CampaignDraft } from './entities/campaign-draft.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Campaign, CampaignDraft])],
-  controllers: [CampaignsController],
+  imports: [TypeOrmModule.forFeature([Campaign, CampaignDraft]), PrismaModule],
+  controllers: [CampaignsController, AdminCampaignsController],
   providers: [CampaignsService],
   exports: [CampaignsService],
 })
