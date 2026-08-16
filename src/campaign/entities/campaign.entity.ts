@@ -6,8 +6,10 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  AfterLoad,
 } from 'typeorm';
 import { User } from '../../auth/entities/user.entity';
+import { ApiProperty } from '@nestjs/swagger';
 
 export enum CampaignStatus {
   ACTIVE = 'ACTIVE',
@@ -82,9 +84,29 @@ export class Campaign {
   @Column({ default: false })
   isFeatured: boolean;
 
+  @Column({ default: 0 })
+  viewCount: number;
+
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  // Calculated fields
+  @ApiProperty({ description: 'The number of donors for the campaign.' })
+  donorCount: number;
+
+  @ApiProperty({
+    description: 'The number of days remaining for the campaign.',
+  })
+  daysRemaining: number;
+
+  @AfterLoad()
+  calculateDaysRemaining() {
+    const now = new Date();
+    const endDate = new Date(this.endDate);
+    const diffTime = Math.max(endDate.getTime() - now.getTime(), 0);
+    this.daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }
 }
