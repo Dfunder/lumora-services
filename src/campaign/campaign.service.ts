@@ -14,6 +14,10 @@ import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { CreateDraftDto } from './dto/create-draft.dto';
 import { UpdateDraftDto } from './dto/update-draft.dto';
 
+import { UpdateCampaignDto } from './dto/update-campaign.dto';
+import { Queue } from 'bull';
+import { InjectQueue } from '@nestjs/bull';
+
 const MAX_DRAFTS_PER_USER = 5;
 
 @Injectable()
@@ -27,7 +31,68 @@ export class CampaignsService {
 
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    @InjectQueue('analytics') private readonly analyticsQueue: Queue,
   ) {}
+
+  // ─── 1. Get Campaign by ID ────────────────────────────────────────────────
+  async getCampaignById(id: string): Promise<Campaign> {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id },
+      relations: ['creator'],
+    });
+
+    if (!campaign) {
+      throw new NotFoundException(`Campaign with ID "${id}" not found.`);
+    }
+
+    const donations = await this.prisma.donation.findMany({
+      where: { campaignId: id },
+    });
+
+    const uniqueDonors = new Set(donations.map((d) => d.donorId));
+    campaign.donorCount = uniqueDonors.size;
+
+    // Increment view count asynchronously
+    await this.analyticsQueue.add('increment-view-count', { campaignId: id });
+
+    return campaign;
+  }
+
+  // ─── 2. Update Campaign ───────────────────────────────────────────────────
+  async updateCampaign(
+    id: string,
+    creatorId: string,
+    dto: UpdateCampaignDto,
+  ): Promise<Campaign> {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException(`Campaign with ID "${id}" not found.`);
+    }
+
+    if (campaign.creatorId !== creatorId) {
+      throw new ForbiddenException(
+        'You do not have permission to modify this campaign.',
+      );
+    }
+
+    // Prevent updates to on-chain fields
+    if (
+      'goalAmount' in dto ||
+      'milestones' in dto ||
+      'endDate' in dto ||
+      'contractId' in dto
+    ) {
+      throw new BadRequestException(
+        'On-chain data (goalAmount, milestones, endDate, contractId) cannot be updated.',
+      );
+    }
+
+    Object.assign(campaign, dto);
+    return await this.campaignRepository.save(campaign);
+  }
 
   // ─── 1. Publish Campaign ──────────────────────────────────────────────────
   async createCampaign(
