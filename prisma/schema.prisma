@@ -24,6 +24,7 @@ enum CampaignStatus {
   COMPLETED
   CANCELLED
   SUSPENDED
+  CLOSED
 }
 
 enum DonationStatus {
@@ -83,6 +84,23 @@ model Campaign {
   creatorId    String
   title        String
   description  String
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  details   Json
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indices
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
   goalAmount   Decimal        @db.Decimal(18, 7)
   raisedAmount Decimal        @default(0) @db.Decimal(18, 7)
   currency     String         @default("XLM")
@@ -99,6 +117,7 @@ model Campaign {
   milestones Milestone[]
   updates    Update[]
   disputes   Dispute[]
+  isFeatured Boolean @default(false)
 
   // Indices for frequently queried fields
   @@index([creatorId])

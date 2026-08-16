@@ -1,3 +1,4 @@
+import { PrismaService } from '../prisma/prisma.service';
 import {
   Injectable,
   BadRequestException,
@@ -25,10 +26,14 @@ export class CampaignsService {
     private readonly draftRepository: Repository<CampaignDraft>,
 
     private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ─── 1. Publish Campaign ──────────────────────────────────────────────────
-  async createCampaign(creatorId: string, dto: CreateCampaignDto): Promise<Campaign> {
+  async createCampaign(
+    creatorId: string,
+    dto: CreateCampaignDto,
+  ): Promise<Campaign> {
     // Check feature flag for ISSUE-020 review workflow
     const isApprovalEnabled =
       this.configService.get<string>('APPROVAL_WORKFLOW_ENABLED') === 'true';
@@ -48,7 +53,10 @@ export class CampaignsService {
   }
 
   // ─── 2. Create Draft (Max 5 Limit) ────────────────────────────────────────
-  async createDraft(creatorId: string, dto: CreateDraftDto): Promise<CampaignDraft> {
+  async createDraft(
+    creatorId: string,
+    dto: CreateDraftDto,
+  ): Promise<CampaignDraft> {
     const existingDraftsCount = await this.draftRepository.count({
       where: { creatorId },
     });
@@ -82,14 +90,18 @@ export class CampaignsService {
     creatorId: string,
     dto: UpdateDraftDto,
   ): Promise<CampaignDraft> {
-    const draft = await this.draftRepository.findOne({ where: { id: draftId } });
+    const draft = await this.draftRepository.findOne({
+      where: { id: draftId },
+    });
 
     if (!draft) {
       throw new NotFoundException(`Draft with ID "${draftId}" not found.`);
     }
 
     if (draft.creatorId !== creatorId) {
-      throw new ForbiddenException('You do not have permission to modify this draft.');
+      throw new ForbiddenException(
+        'You do not have permission to modify this draft.',
+      );
     }
 
     Object.assign(draft, {
@@ -101,18 +113,121 @@ export class CampaignsService {
   }
 
   // ─── 5. Delete Draft ──────────────────────────────────────────────────────
-  async deleteDraft(draftId: string, creatorId: string): Promise<{ success: boolean }> {
-    const draft = await this.draftRepository.findOne({ where: { id: draftId } });
+  async deleteDraft(
+    draftId: string,
+    creatorId: string,
+  ): Promise<{ success: boolean }> {
+    const draft = await this.draftRepository.findOne({
+      where: { id: draftId },
+    });
 
     if (!draft) {
       throw new NotFoundException(`Draft with ID "${draftId}" not found.`);
     }
 
     if (draft.creatorId !== creatorId) {
-      throw new ForbiddenException('You do not have permission to delete this draft.');
+      throw new ForbiddenException(
+        'You do not have permission to delete this draft.',
+      );
     }
 
     await this.draftRepository.remove(draft);
     return { success: true };
+  }
+
+  async closeCampaign(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<Campaign> {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException(
+        `Campaign with ID "${campaignId}" not found.`,
+      );
+    }
+
+    if (campaign.creatorId !== creatorId) {
+      throw new ForbiddenException(
+        'You do not have permission to close this campaign.',
+      );
+    }
+
+    campaign.status = CampaignStatus.CLOSED;
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: creatorId,
+        action: 'close-campaign',
+        details: { campaignId },
+      },
+    });
+
+    return await this.campaignRepository.save(campaign);
+  }
+
+  async suspendCampaign(campaignId: string, reason: string): Promise<Campaign> {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException(
+        `Campaign with ID "${campaignId}" not found.`,
+      );
+    }
+
+    campaign.status = CampaignStatus.SUSPENDED;
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: 'admin', // Or the actual admin user ID
+        action: 'suspend-campaign',
+        details: { campaignId, reason },
+      },
+    });
+
+    return await this.campaignRepository.save(campaign);
+  }
+
+  async featureCampaign(campaignId: string): Promise<Campaign> {
+    const featuredCampaignsCount = await this.campaignRepository.count({
+      where: { isFeatured: true },
+    });
+
+    if (featuredCampaignsCount >= 6) {
+      throw new BadRequestException('Cannot feature more than 6 campaigns.');
+    }
+
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException(
+        `Campaign with ID "${campaignId}" not found.`,
+      );
+    }
+
+    campaign.isFeatured = true;
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: 'admin', // Or the actual admin user ID
+        action: 'feature-campaign',
+        details: { campaignId },
+      },
+    });
+
+    return await this.campaignRepository.save(campaign);
+  }
+
+  async getFeaturedCampaigns(): Promise<Campaign[]> {
+    return await this.campaignRepository.find({
+      where: { isFeatured: true },
+      order: { updatedAt: 'DESC' },
+    });
   }
 }
