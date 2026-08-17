@@ -1,27 +1,77 @@
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { CampaignsModule } from './campaigns/campaigns.module';
-import { User } from './entities/user.entity';
-import { Campaign } from './entities/campaign.entity';
-import { Donation } from './entities/donation.entity';
+import { RedisModule } from './redis/redis.module';
+import { QueueModule } from './queues/queue.module';
+import { BullBoardConfigModule } from './bull-board/bull-board.module';
+import { HealthModule } from './health/health.module';
+import { DonationModule } from './donation/donation.module';
+import { UsersModule } from './users/users.module';
+import { AuthModule } from './auth/auth.module';
+import { CampaignModule } from './campaign/campaign.module';
+import { User } from './auth/entities/user.entity';
+import { AuditLog } from './auth/entities/audit-log.entity';
+import { SuspensionGuard } from './auth/guards/suspension.guard';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { RolesGuard } from './auth/guards/roles.guard';
+import { Campaign } from './campaign/entities/campaign.entity';
+import redisConfig from './config/redis.config';
+import bullConfig from './config/bull.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      load: [redisConfig, bullConfig],
     }),
-    TypeOrmModule.forRoot({
-      type: 'better-sqlite3',
-      database: ':memory:',
-      entities: [User, Campaign, Donation],
-      synchronize: true,
+    TypeOrmModule.forRootAsync({
+      useFactory: (config: ConfigService) => ({
+        type: 'postgres',
+        url: config.get<string>('DATABASE_URL'),
+        entities: [User, AuditLog, Campaign, CampaignDraft],
+        synchronize: config.get<string>('NODE_ENV') !== 'production',
+      }),
+      inject: [ConfigService],
     }),
-    CampaignsModule,
+    RedisModule,
+    QueueModule,
+    ...(process.env.NODE_ENV !== 'production' ? [BullBoardConfigModule] : []),
+    HealthModule,
+    AuthModule,
+    CampaignModule,
+    UsersModule,
+    DonationModule,
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SuspensionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
+  ],
 })
 export class AppModule {}
