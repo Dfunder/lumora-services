@@ -1,29 +1,25 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
-import { DonationsModule } from './donations/donations.module';
-import { UsersModule } from './users/users.module';
-import { ContractsModule } from './contracts/contracts.module';
-import { WebhooksModule } from './webhooks/webhooks.module';
-import { AdminModule } from './admin/admin.module';
-import { NotificationsModule } from './notifications/notifications.module';
+import { User } from './entities/user.entity';
+import { Campaign } from './entities/campaign.entity';
+import { Donation } from './entities/donation.entity';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    AuthModule,
+    TypeOrmModule.forRoot({
+      type: 'better-sqlite3',
+      database: ':memory:',
+      entities: [User, Campaign, Donation],
+      synchronize: true,
+    }),
     CampaignsModule,
-    DonationsModule,
-    UsersModule,
-    ContractsModule,
-    WebhooksModule,
-    AdminModule,
-    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
