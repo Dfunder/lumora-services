@@ -18,6 +18,8 @@ import { UpdateDraftDto } from './dto/update-draft.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 import { Queue } from 'bull';
 import { InjectQueue } from '@nestjs/bull';
+import { logger } from '../common/logger/logger';
+import correlation from '../common/correlation/correlation.service';
 
 const MAX_DRAFTS_PER_USER = 5;
 
@@ -38,6 +40,8 @@ export class CampaignsService {
 
   // ─── 1. Get Campaign by ID ────────────────────────────────────────────────
   async getCampaignById(id: string): Promise<Campaign> {
+    const ctx = correlation.get();
+    logger.info('campaign.getCampaignById.start', { campaignId: id, correlationId: ctx.correlationId });
     const campaign = await this.campaignRepository.findOne({
       where: { id },
       relations: ['creator'],
@@ -55,7 +59,9 @@ export class CampaignsService {
     campaign.donorCount = uniqueDonors.size;
 
     // Increment view count asynchronously
-    await this.analyticsQueue.add('increment-view-count', { campaignId: id });
+    await this.analyticsQueue.add('increment-view-count', { campaignId: id, _meta: { correlationId: ctx.correlationId } });
+
+    logger.info('campaign.getCampaignById.complete', { campaignId: id, correlationId: ctx.correlationId });
 
     return campaign;
   }
@@ -101,6 +107,8 @@ export class CampaignsService {
     creatorId: string,
     dto: CreateCampaignDto,
   ): Promise<Campaign> {
+    const ctx = correlation.get();
+    logger.info('campaign.create.start', { creatorId, correlationId: ctx.correlationId });
     // Check feature flag for ISSUE-020 review workflow
     const isApprovalEnabled =
       this.configService.get<string>('APPROVAL_WORKFLOW_ENABLED') === 'true';
@@ -116,7 +124,15 @@ export class CampaignsService {
       endDate: new Date(dto.endDate),
     });
 
-    return await this.campaignRepository.save(campaign);
+    const saved = await this.campaignRepository.save(campaign);
+    // Business event
+    (await import('../common/events/event.logger')).logEvent('campaign.created', {
+      campaignId: saved.id,
+      creatorId: saved.creatorId,
+    });
+
+    logger.info('campaign.create.complete', { campaignId: saved.id, creatorId: saved.creatorId, correlationId: ctx.correlationId });
+    return saved;
   }
 
   // ─── 2. Create Draft (Max 5 Limit) ────────────────────────────────────────
@@ -124,6 +140,8 @@ export class CampaignsService {
     creatorId: string,
     dto: CreateDraftDto,
   ): Promise<CampaignDraft> {
+    const ctx = correlation.get();
+    logger.info('campaign.createDraft.start', { creatorId, correlationId: ctx.correlationId });
     const existingDraftsCount = await this.draftRepository.count({
       where: { creatorId },
     });
@@ -231,6 +249,8 @@ export class CampaignsService {
         details: { campaignId },
       },
     });
+
+    logger.info('campaign.close', { campaignId, creatorId, correlationId: correlation.get().correlationId });
 
     return await this.campaignRepository.save(campaign);
   }

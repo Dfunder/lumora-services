@@ -39,7 +39,7 @@ import bullConfig from './config/bull.config';
     }),
     RedisModule,
     QueueModule,
-    ...(process.env.NODE_ENV !== 'production' ? [BullBoardConfigModule] : []),
+    (process.env.NODE_ENV !== 'production' ? [BullBoardConfigModule] : []),
     HealthModule,
     AuthModule,
     CampaignModule,
