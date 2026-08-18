@@ -142,6 +142,20 @@ export class CampaignsController {
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get donation analytics for a campaign' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  @ApiResponse({ status: 200, description: 'Donation analytics returned successfully' })
+  @Get(':id/donations/analytics')
+  async getDonationAnalytics(@Req() req: any, @Param('id') id: string) {
+    return await this.campaignsService.getDonationAnalytics(
+      id,
+      req.user.sub,
+      req.user.role,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Close a campaign' })
   @ApiParam({ name: 'id', description: 'Campaign ID to close' })
   @ApiResponse({ status: 200, description: 'Campaign closed successfully' })

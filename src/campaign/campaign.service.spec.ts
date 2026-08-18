@@ -5,12 +5,16 @@ import { BadRequestException, NotFoundException, ForbiddenException } from '@nes
 import { CampaignsService } from './campaign.service';
 import { Campaign, CampaignStatus } from './entities/campaign.entity';
 import { CampaignDraft } from './entities/campaign-draft.entity';
+import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 describe('CampaignsService', () => {
   let service: CampaignsService;
   let campaignRepo: any;
   let draftRepo: any;
   let configService: any;
+  let prismaService: any;
+  let redisService: any;
 
   const mockCampaignRepo = {
     create: jest.fn().mockImplementation((dto) => dto),
@@ -31,12 +35,33 @@ describe('CampaignsService', () => {
   };
 
   beforeEach(async () => {
+    prismaService = {
+      donation: {
+        findMany: jest.fn(),
+        groupBy: jest.fn(),
+      },
+      $queryRaw: jest.fn(),
+      campaign: {
+        findUnique: jest.fn(),
+      },
+      auditLog: {
+        create: jest.fn(),
+      },
+    };
+
+    redisService = {
+      get: jest.fn(),
+      set: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CampaignsService,
         { provide: getRepositoryToken(Campaign), useValue: mockCampaignRepo },
         { provide: getRepositoryToken(CampaignDraft), useValue: mockDraftRepo },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -119,6 +144,46 @@ describe('CampaignsService', () => {
       await expect(
         service.updateDraft('draft-1', 'user-123', { title: 'Hacked' }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getDonationAnalytics', () => {
+    it('should return 30-day donation trends, asset breakdown, and top donors for the creator or an admin', async () => {
+      mockCampaignRepo.findOne.mockResolvedValue({ id: 'campaign-1', creatorId: 'user-123' });
+      redisService.get.mockResolvedValue(null);
+      prismaService.$queryRaw.mockImplementation(async (query: string) => {
+        if (query.includes('asset')) {
+          return [
+            { asset: 'XLM', total: '1500', count: 3 },
+            { asset: 'USDC', total: '500', count: 1 },
+          ];
+        }
+
+        if (query.includes('donor')) {
+          return [
+            { donorId: 'donor-1', totalDonated: '1200', donations: 2 },
+            { donorId: 'donor-2', totalDonated: '800', donations: 1 },
+          ];
+        }
+
+        return [
+          { date: '2026-08-01', count: 2, total: '1000' },
+          { date: '2026-08-02', count: 1, total: '500' },
+        ];
+      });
+
+      const result = await service.getDonationAnalytics('campaign-1', 'user-123', 'USER');
+
+      expect(result.donationsPerDay).toHaveLength(2);
+      expect(result.assetBreakdown[0].asset).toBe('XLM');
+      expect(result.topDonors[0].donorId).toBe('donor-1');
+      expect(redisService.set).toHaveBeenCalledWith(expect.stringContaining('campaign-analytics'), expect.any(String), 300);
+    });
+
+    it('should reject non-admin users who are not the campaign creator', async () => {
+      mockCampaignRepo.findOne.mockResolvedValue({ id: 'campaign-1', creatorId: 'user-123' });
+
+      await expect(service.getDonationAnalytics('campaign-1', 'user-999', 'USER')).rejects.toThrow(ForbiddenException);
     });
   });
 });
