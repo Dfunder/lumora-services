@@ -13,10 +13,13 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { WalletThrottlerGuard } from '../common/guards/wallet-throttler.guard';
 import { CreateDonationDto } from './dto/create-donation.dto';
+import { DonationService } from './donation.service';
 
 @ApiTags('donation')
 @Controller('donation')
 export class DonationController {
+  constructor(private readonly donationService: DonationService) {}
+
   @ApiOperation({ summary: 'Process a donation to a campaign' })
   @ApiBody({ type: CreateDonationDto })
   @ApiResponse({ status: 200, description: 'Donation processed successfully' })
@@ -30,7 +33,6 @@ export class DonationController {
   @Post()
   @HttpCode(HttpStatus.OK)
   donate(@Body() createDonationDto: CreateDonationDto) {
-    // Donation logic goes here
-    return { success: true };
+    return this.donationService.submitDonation(createDonationDto);
   }
 }
