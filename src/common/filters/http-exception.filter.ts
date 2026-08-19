@@ -8,90 +8,88 @@ import {
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import * as Sentry from '@sentry/node';
-import { JwtService } from '@nestjs/jwt';
+import { correlation } from '../correlation/correlation.service';
+import { ErrorCode } from '../errors/error-codes';
+import { ApiException } from '../errors/api-exception';
 
 @Catch()
 export class GlobalHttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalHttpExceptionFilter.name);
-  private readonly jwtService = new JwtService({});
 
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
+    const correlationId = correlation.getCorrelationId();
 
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message: any = 'Internal server error';
-    let error = 'Internal Server Error';
+    let message = 'Internal server error';
+    let error = 'INTERNAL_SERVER_ERROR';
+    let errorCode = ErrorCode.UNKNOWN_ERROR;
+    let details: any;
 
-    // Extract request context
-    const route = `${request.method} ${request.url}`;
-    let walletAddress: string | null = null;
-
-    // Extract wallet from JWT token if present
-    const authHeader = request.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      try {
-        const payload = this.jwtService.decode(token) as any;
-        if (payload?.walletAddress) {
-          walletAddress = payload.walletAddress;
-        }
-      } catch {
-        // Ignore invalid tokens
-      }
-    }
-
-    if (exception instanceof HttpException) {
+    if (exception instanceof ApiException) {
       statusCode = exception.getStatus();
-      const exceptionResponse: any = exception.getResponse();
-
+      const exceptionResponse = exception.getResponse() as any;
+      message = exceptionResponse.message;
+      errorCode = exceptionResponse.errorCode;
+      error = HttpStatus[statusCode];
+      details = exceptionResponse.details;
+    } else if (exception instanceof HttpException) {
+      statusCode = exception.getStatus();
+      const exceptionResponse = exception.getResponse() as any;
       error = exceptionResponse.error || exception.name;
       message = exceptionResponse.message || exception.message;
+    }
 
-      // Capture 500-level errors with context
-      if (statusCode >= 500) {
-        this.logger.error(
-          `HTTP Exception: ${exception.message} at ${route}`,
-          exception.stack,
-        );
-        Sentry.captureException(exception, {
-          contexts: {
-            request: {
-              url: request.url,
-              method: request.method,
-              route,
-            },
-            user: {
-              wallet_address: walletAddress,
-            },
-          },
-        });
-      }
-    } else {
+    const sentryTags = {
+      endpoint: `${request.method} ${request.path}`,
+      error_type: error,
+      status_code: statusCode,
+      user_role: (request as any).user?.role,
+    };
+
+    const errorResponse = {
+      statusCode,
+      message,
+      error,
+      errorCode,
+      requestId: correlationId,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+      details,
+    };
+
+    if (statusCode >= 500) {
       this.logger.error(
-        `Unhandled Exception: ${exception.message} at ${route}`,
+        `HTTP Exception: ${exception.message}`,
         exception.stack,
+        {
+          correlationId,
+          request: {
+            method: request.method,
+            url: request.url,
+            body: request.body,
+          },
+          user: (request as any).user,
+        },
       );
       Sentry.captureException(exception, {
-        contexts: {
-          request: {
-            url: request.url,
-            method: request.method,
-            route,
-          },
-          user: {
-            wallet_address: walletAddress,
-          },
+        tags: sentryTags,
+        extra: {
+          'Request ID': correlationId,
+        },
+        user: {
+          id: (request as any).user?.id,
         },
       });
     }
 
-    response.status(statusCode).json({
-      statusCode,
-      message,
-      error,
-      timestamp: new Date().toISOString(),
-    });
+    if (process.env.NODE_ENV === 'production' && statusCode >= 500) {
+      errorResponse.message = 'Internal server error';
+      delete errorResponse.details;
+    }
+
+    response.status(statusCode).json(errorResponse);
   }
 }

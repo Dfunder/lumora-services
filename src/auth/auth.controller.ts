@@ -20,6 +20,8 @@ import {
 import { AuthService } from './auth.service';
 import { ChallengeDto } from './dto/challenge.dto';
 import { VerifyAuthDto } from './dto/verify-auth.dto';
+import { ApiException } from '../common/errors/api-exception';
+import { ErrorCode } from '../common/errors/error-codes';
 import { RefreshAuthDto } from './dto/refresh-auth.dto';
 import { LogoutAuthDto } from './dto/logout-auth.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -38,9 +40,16 @@ import type { JwtPayload } from './guards/jwt-auth.guard';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @ApiOperation({ summary: 'Generate authentication challenge for wallet login' })
+  @ApiOperation({
+    summary: 'Generate authentication challenge for wallet login',
+  })
   @ApiQuery({ name: 'walletAddress', description: 'Stellar wallet public key' })
   @ApiResponse({ status: 200, description: 'Challenge generated successfully' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid wallet address',
+    type: ApiException,
+  })
   @Get('challenge')
   @Throttle({
     default: {
@@ -48,14 +57,29 @@ export class AuthController {
       ttl: 60000,
     },
   })
-  challenge(@Query() dto: ChallengeDto) {
-    return this.authService.challenge(dto.walletAddress);
+  async challenge(@Query() dto: ChallengeDto) {
+    try {
+      return await this.authService.challenge(dto.walletAddress);
+    } catch (error) {
+      throw new ApiException(
+        ErrorCode.AUTH_001,
+        'Invalid wallet address',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   @ApiOperation({ summary: 'Verify signed challenge and issue JWT tokens' })
   @ApiBody({ type: VerifyAuthDto })
-  @ApiResponse({ status: 200, description: 'Authentication successful, tokens returned' })
-  @ApiResponse({ status: 401, description: 'Invalid signature or expired challenge' })
+  @ApiResponse({
+    status: 200,
+    description: 'Authentication successful, tokens returned',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid signature or expired challenge',
+    type: ApiException,
+  })
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   verify(@Body() dto: VerifyAuthDto) {
