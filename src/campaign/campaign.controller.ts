@@ -24,16 +24,16 @@ import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { CreateDraftDto } from './dto/create-draft.dto';
 import { UpdateDraftDto } from './dto/update-draft.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 import { Public } from 'src/auth/decorators/public.decorator';
+import { ApiException } from 'src/common/errors/api-exception';
+import { ErrorCode } from 'src/common/errors/error-codes';
 
 @ApiTags('campaigns')
 @Controller('campaigns')
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 
-  // ─── 1. Get Campaign by ID ────────────────────────────────────────────────
   @Public()
   @Get(':id')
   @ApiOperation({ summary: 'Get a single campaign by its ID' })
@@ -42,12 +42,23 @@ export class CampaignsController {
     status: 200,
     description: 'Campaign details returned successfully',
   })
-  @ApiResponse({ status: 404, description: 'Campaign not found' })
+  @ApiResponse({
+    status: 404,
+    description: 'Campaign not found',
+    type: ApiException,
+  })
   async getCampaignById(@Param('id') id: string) {
-    return await this.campaignsService.getCampaignById(id);
+    const campaign = await this.campaignsService.getCampaignById(id);
+    if (!campaign) {
+      throw new ApiException(
+        ErrorCode.CAMPAIGN_001,
+        'Campaign not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return campaign;
   }
 
-  // ─── 2. Update Campaign ───────────────────────────────────────────────────
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
   @ApiBearerAuth('JWT-auth')
@@ -55,17 +66,32 @@ export class CampaignsController {
   @ApiParam({ name: 'id', description: 'Campaign ID' })
   @ApiBody({ type: UpdateCampaignDto })
   @ApiResponse({ status: 200, description: 'Campaign updated successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
-  @ApiResponse({ status: 404, description: 'Campaign not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden', type: ApiException })
+  @ApiResponse({
+    status: 404,
+    description: 'Campaign not found',
+    type: ApiException,
+  })
   async updateCampaign(
     @Req() req: any,
     @Param('id') id: string,
     @Body() dto: UpdateCampaignDto,
   ) {
     const creatorId = req.user.id;
-    return await this.campaignsService.updateCampaign(id, creatorId, dto);
+    try {
+      return await this.campaignsService.updateCampaign(id, creatorId, dto);
+    } catch (error) {
+      if (error.message.includes('not found')) {
+        throw new ApiException(
+          ErrorCode.CAMPAIGN_001,
+          'Campaign not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      throw error;
+    }
   }
-  // ─── 1. Publish Campaign ──────────────────────────────────────────────────
+
   @ApiOperation({ summary: 'Create and publish a new campaign' })
   @ApiBody({ type: CreateCampaignDto })
   @ApiResponse({
@@ -77,12 +103,10 @@ export class CampaignsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createCampaign(@Req() req: any, @Body() dto: CreateCampaignDto) {
-    // Extract creatorId directly from JWT user object
     const creatorId = req.user.id;
     return await this.campaignsService.createCampaign(creatorId, dto);
   }
 
-  // ─── 2. Create Draft ──────────────────────────────────────────────────────
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create a new campaign draft' })
@@ -95,7 +119,6 @@ export class CampaignsController {
     return await this.campaignsService.createDraft(creatorId, dto);
   }
 
-  // ─── 3. Get User Drafts ───────────────────────────────────────────────────
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -111,7 +134,6 @@ export class CampaignsController {
     return await this.campaignsService.getUserDrafts(creatorId);
   }
 
-  // ─── 4. Update Draft ──────────────────────────────────────────────────────
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update an existing campaign draft' })
@@ -128,7 +150,6 @@ export class CampaignsController {
     return await this.campaignsService.updateDraft(id, creatorId, dto);
   }
 
-  // ─── 5. Delete Draft ──────────────────────────────────────────────────────
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Delete a campaign draft' })
@@ -144,7 +165,10 @@ export class CampaignsController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get donation analytics for a campaign' })
   @ApiParam({ name: 'id', description: 'Campaign ID' })
-  @ApiResponse({ status: 200, description: 'Donation analytics returned successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Donation analytics returned successfully',
+  })
   @Get(':id/donations/analytics')
   async getDonationAnalytics(@Req() req: any, @Param('id') id: string) {
     return await this.campaignsService.getDonationAnalytics(

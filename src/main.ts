@@ -41,7 +41,7 @@ async function bootstrap() {
       'JWT-auth',
     )
     .build();
-  
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document, {
     swaggerOptions: {
@@ -54,34 +54,16 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      exceptionFactory: (validationErrors: ValidationError[]) => {
-        const extractErrors = (
-          errors: ValidationError[],
-          parentPath = '',
-        ): Record<string, string[]> => {
-          const result: Record<string, string[]> = {};
-
-          for (const err of errors) {
-            const path = parentPath
-              ? `${parentPath}.${err.property}`
-              : err.property;
-
-            if (err.constraints) {
-              result[path] = Object.values(err.constraints);
-            }
-
-            if (err.children?.length) {
-              Object.assign(result, extractErrors(err.children, path));
-            }
-          }
-
-          return result;
-        };
-
-        return new BadRequestException({
-          message: extractErrors(validationErrors),
-          error: 'Bad Request',
-        });
+      exceptionFactory: (validationErrors: ValidationError[] = []) => {
+        return new ApiException(
+          ErrorCode.VALIDATION_001,
+          'Validation failed',
+          HttpStatus.BAD_REQUEST,
+          validationErrors.map((error) => ({
+            field: error.property,
+            message: Object.values(error.constraints).join(', '),
+          })),
+        );
       },
     }),
   );
