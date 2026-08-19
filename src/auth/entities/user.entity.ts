@@ -52,6 +52,12 @@ export class User {
   @Column({ default: false })
   verifiedStatus: boolean;
 
+  @Column({ type: 'timestamp', nullable: true })
+  lastLoginAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastSessionAt: Date | null;
+
   @OneToMany(() => Campaign, (campaign) => campaign.creator)
   campaigns: Campaign[];
 

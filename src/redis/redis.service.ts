@@ -103,4 +103,52 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async ping(): Promise<string> {
     return await this.redis.ping();
   }
+
+  /**
+   * Set a key only if it does not already exist (atomic).
+   * Returns true if the key was set, false if it already existed.
+   */
+  async setnx(
+    key: string,
+    value: string | number | Buffer,
+    ttl?: number,
+  ): Promise<boolean> {
+    if (ttl) {
+      const result = await this.redis.set(key, value, 'EX', ttl, 'NX');
+      return result === 'OK';
+    }
+    const result = await this.redis.set(key, value, 'NX');
+    return result === 'OK';
+  }
+
+  /**
+   * Execute a WATCH/MULTI transaction for optimistic locking.
+   * Returns null if the watched keys were modified (conflict).
+   */
+  async watchTransaction(
+    keys: string[],
+    operations: (
+      multi: ReturnType<Redis['multi']>,
+    ) => ReturnType<Redis['multi']>,
+  ): Promise<Record<string, unknown>[] | null> {
+    const watch = this.redis.watch(...keys);
+    try {
+      const multi = this.redis.multi();
+      operations(multi);
+      const results = await multi.exec();
+      // exec() returns null when a watched key was modified
+      if (results === null || results === undefined) {
+        return null;
+      }
+      return results.map((result) => {
+        const [err, value] = result as [Error | null, unknown];
+        if (err) throw err;
+        return value as Record<string, unknown>;
+      });
+    } catch (error) {
+      throw error;
+    } finally {
+      await watch.unwatch();
+    }
+  }
 }

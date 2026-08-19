@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Campaign, CampaignStatus } from './entities/campaign.entity';
+import { RedisService } from '../redis/redis.service';
 import { CampaignDraft } from './entities/campaign-draft.entity';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { CreateDraftDto } from './dto/create-draft.dto';
@@ -31,6 +32,7 @@ export class CampaignsService {
 
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     @InjectQueue('analytics') private readonly analyticsQueue: Queue,
   ) {}
 
@@ -294,5 +296,85 @@ export class CampaignsService {
       where: { isFeatured: true },
       order: { updatedAt: 'DESC' },
     });
+  }
+
+  async getDonationAnalytics(
+    campaignId: string,
+    currentUserId: string,
+    currentUserRole: string,
+  ) {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException(`Campaign with ID "${campaignId}" not found.`);
+    }
+
+    if (currentUserRole !== 'ADMIN' && campaign.creatorId !== currentUserId) {
+      throw new ForbiddenException(
+        'You do not have permission to view this campaign donation analytics.',
+      );
+    }
+
+    const cacheKey = `campaign-analytics:${campaignId}`;
+    const cached = await this.redisService.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+
+    const [donationsPerDay, assetBreakdown, topDonors] = await Promise.all([
+      this.prisma.$queryRaw<{ date: string; total: string; count: number }[]>`
+        SELECT
+          DATE("createdAt")::text AS "date",
+          COUNT(*)::int AS "count",
+          COALESCE(SUM("amount"), 0)::text AS "total"
+        FROM "Donation"
+        WHERE "campaignId" = ${campaignId}
+          AND "status" = 'COMPLETED'
+          AND "createdAt" >= ${startDate}
+        GROUP BY DATE("createdAt")
+        ORDER BY "date" ASC
+      `,
+      this.prisma.$queryRaw<{ asset: string; total: string; count: number }[]>`
+        SELECT
+          "currency" AS "asset",
+          COUNT(*)::int AS "count",
+          COALESCE(SUM("amount"), 0)::text AS "total"
+        FROM "Donation"
+        WHERE "campaignId" = ${campaignId}
+          AND "status" = 'COMPLETED'
+        GROUP BY "currency"
+        ORDER BY "total" DESC
+      `,
+      this.prisma.$queryRaw<{ donorId: string; totalDonated: string; donations: number }[]>`
+        SELECT
+          "donorId",
+          COALESCE(SUM("amount"), 0)::text AS "totalDonated",
+          COUNT(*)::int AS "donations"
+        FROM "Donation"
+        WHERE "campaignId" = ${campaignId}
+          AND "status" = 'COMPLETED'
+          AND "donorId" IS NOT NULL
+        GROUP BY "donorId"
+        ORDER BY "totalDonated" DESC
+        LIMIT 10
+      `,
+    ]);
+
+    const response = {
+      campaignId,
+      rangeDays: 30,
+      donationsPerDay,
+      assetBreakdown: assetBreakdown,
+      topDonors,
+    };
+
+    await this.redisService.set(cacheKey, JSON.stringify(response), 300);
+
+    return response;
   }
 }
