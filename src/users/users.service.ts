@@ -17,6 +17,9 @@ export class UsersService {
   ) {}
 
   async getPublicProfile(walletAddress: string): Promise<PublicProfileDto> {
+    const ctx = (await import('../common/correlation/correlation.service')).default.get();
+    const logger = (await import('../common/logger/logger')).logger ?? (await import('../common/logger/logger')).default;
+    logger.info('users.getPublicProfile.start', { walletAddress, correlationId: ctx.correlationId });
     const user = await this.userRepository.findOne({
       where: { walletAddress },
       relations: ['campaigns'],
@@ -36,6 +39,9 @@ export class UsersService {
   async searchUsers(
     query: AdminSearchQueryDto,
   ): Promise<AdminSearchResponseDto> {
+    const ctx = (await import('../common/correlation/correlation.service')).default.get();
+    const logger = (await import('../common/logger/logger')).logger ?? (await import('../common/logger/logger')).default;
+    logger.info('users.searchUsers.start', { query, correlationId: ctx.correlationId });
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const searchTerm = query.q ?? '';

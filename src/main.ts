@@ -5,9 +5,16 @@ import { GlobalHttpExceptionFilter } from './common/filters/http-exception.filte
 import { ValidationError } from 'class-validator';
 import { AppModule } from './app.module';
 import * as Sentry from '@sentry/node';
-
+import { WinstonModule } from 'nest-winston';
+import { winstonConfig } from './common/logger/winston.config';
+import correlationMiddleware from './common/correlation/correlation.middleware';
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: WinstonModule.createLogger(winstonConfig),
+  });
+
+  // Correlation ID + request/response logging middleware
+  app.use(correlationMiddleware);
 
   // Initialize Sentry
   if (process.env.SENTRY_DSN) {
