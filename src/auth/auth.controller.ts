@@ -6,18 +6,26 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { 
-  ApiOperation, 
-  ApiResponse, 
-  ApiBody, 
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
   ApiQuery,
   ApiTags,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { ChallengeDto } from './dto/challenge.dto';
 import { VerifyAuthDto } from './dto/verify-auth.dto';
+import { RefreshAuthDto } from './dto/refresh-auth.dto';
+import { LogoutAuthDto } from './dto/logout-auth.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { SuspensionGuard } from './guards/suspension.guard';
+import { CurrentUser } from './decorators/current-user.decorator';
+import type { JwtPayload } from './guards/jwt-auth.guard';
 
 @ApiTags('auth')
 @Throttle({
@@ -52,5 +60,36 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   verify(@Body() dto: VerifyAuthDto) {
     return this.authService.verify(dto);
+  }
+
+  @ApiOperation({ summary: 'Refresh access token using refresh token (with rotation)' })
+  @ApiBody({ type: RefreshAuthDto })
+  @ApiResponse({ status: 200, description: 'Tokens refreshed successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid or revoked refresh token' })
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  refresh(@Body() dto: RefreshAuthDto) {
+    return this.authService.refresh(dto);
+  }
+
+  @ApiOperation({ summary: 'Logout and revoke refresh token' })
+  @ApiBody({ type: LogoutAuthDto })
+  @ApiResponse({ status: 200, description: 'Logged out successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@Body() dto: LogoutAuthDto): Promise<void> {
+    await this.authService.logout(dto);
+  }
+
+  @ApiOperation({ summary: 'Logout from all sessions (requires authentication)' })
+  @ApiBearerAuth('JWT-auth')
+  @ApiResponse({ status: 200, description: 'All sessions revoked' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @Post('logout-all')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, SuspensionGuard)
+  async logoutAll(@CurrentUser() user: JwtPayload): Promise<void> {
+    await this.authService.logoutAll(user.sub);
   }
 }

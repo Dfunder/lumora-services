@@ -17,6 +17,8 @@ export type JwtPayload = {
   type?: string;
   iat?: number;
   exp?: number;
+  issuedAt?: number;
+  lastRotatedAt?: number;
 };
 
 @Injectable()
@@ -51,11 +53,10 @@ export class JwtAuthGuard implements CanActivate {
       if (payload.type === 'refresh') {
         throw new UnauthorizedException();
       }
-      if (
-        await this.redisService.exists(
-          `${AUTH_CONSTANTS.BLACKLIST_PREFIX}${payload.jti}`,
-        )
-      ) {
+      const isBlacklisted = await this.redisService.exists(
+        `${AUTH_CONSTANTS.BLACKLIST_PREFIX}${payload.jti}`,
+      );
+      if (isBlacklisted) {
         throw new UnauthorizedException();
       }
       request.user = payload;

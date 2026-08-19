@@ -1,98 +1,122 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# 🌟 StellarAid
+Blockchain-powered crowdfunding for global impact — transparent, borderless, and secure.
+StellarAid is an open-source, decentralized crowdfunding platform built on the Stellar Network & Soroban smart contracts. It enables creators to raise funds in XLM or any Stellar-based asset, while donors enjoy transparent, verifiable on-chain contributions.
+Whether it’s humanitarian campaigns, community causes, startups, or global charity projects — StellarAid brings trust, transparency, and financial accessibility to fundraising.
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+# 📖 About StellarAid
+StellarAid empowers individuals and organizations to launch fundraising campaigns with full blockchain transparency.
+The platform supports multi-asset contributions, verifiable donation trails, automated fund releases through Soroban smart contracts, and wallet-based authentication.
+- 🔐 Decentralized & Secure — Wallet-based login, non-custodial flows
+- 💸 Multi-Asset Support — XLM, USDC, NGNT, custom Stellar assets
+- 📊 Transparent — Every donation visible and verifiable on-chain
+- ⚙️ Modular & Open Source — Easy for contributors and developers
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+# 🏗 Organization Repositories
+- stellarAid-web → Frontend DApp (Next.js + Stellar SDK)
+  - Wallet connection (Freighter, Albedo, Lobstr)
+  - Campaign discovery & donation dashboard
+  - Creator dashboard for managing projects
+  - Admin UI for approvals and moderation
 
-## Description
+- stellarAid-api → Backend services (NestJS + PostgreSQL )
+  - User authentication (wallet + email verification)
+  - Campaign approval workflow
+  - Donation tracking + analytics
+  - Notifications (email/SMS)
+  - Admin API endpoints
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- stellaraid-contracts → Soroban smart contracts (Rust)
+  - Secure donation escrow
+  - Creator withdrawal logic
+  - Platform fee management
+  - Dispute window & session lifecycle
+  - Multi-asset support
 
-## Project setup
-
-```bash
-$ npm install
+- Each repo includes:
+```
+/docs        → Technical documentation
+/examples    → Sample integrations
+/scripts     → Dev and deployment utilities
 ```
 
-## Compile and run the project
+# 🔑 How StellarAid Works
+- 1️⃣ User connects Stellar wallet (Freighter, Albedo, Lobstr)
+- 2️⃣ Creator launches a campaign → stored in backend + contract ref
+- 3️⃣ Donors contribute using Stellar assets
+- 4️⃣ Soroban contract escrows funds safely
+- 5️⃣ Creators withdraw funds securely on-chain
+- 6️⃣ Admin tools handle verification, fraud detection & analytics
+Everything is transparent, globally accessible, and verifiable.
 
-```bash
-# development
-$ npm run start
+# 🛠 Tech Stack
+### 🌐 Frontend DApp
+- Next.js
+- Stellar Wallet SDK & Soroban Kit
+- TailwindCSS
+- React Query + Zustand
 
-# watch mode
-$ npm run start:dev
+### ⚙️ Backend Services
 
-# production mode
-$ npm run start:prod
-```
+- NestJS (modular monolith)
+- PostgreSQL (primary data store)
+- Redis (cache, rate-limits, nonce store)
+- Nodemailer (notifications)
 
-## Run tests
+### 📝 Smart Contracts
+- Rust
+- Soroban SDK
+- Soroban RPC
 
-```bash
-# unit tests
-$ npm run test
+### 🗄 Data Layer
+- PostgreSQL for core data
+- Redis for caching + session flow
+- Optional IPFS for media (campaign images, proofs)
 
-# e2e tests
-$ npm run test:e2e
 
-# test coverage
-$ npm run test:cov
-```
+# 🚀 Roadmap
+### Phase 1 (MVP)
 
-## Deployment
+- User registration + wallet login
+- Create & approve campaigns
+- Donate using XLM/USDC
+- Basic dashboard & on-chain transparency
+- Core Soroban contract (escrow + withdraw)
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Phase 2
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+- Email verification + KYC workflow
+- Advanced analytics
+- Multi-asset campaign support
+- Dispute handling
+- Social login (GitHub/Twitter/Discord)
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+### Phase 3
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+- Automated payout schedules
+- Community governance
+- Cross-border NGO support
+- Trust badges & identity verification
 
-## Resources
+### Phase 4
 
-Check out a few resources that may come in handy when working with NestJS:
+- AI-driven fraud scoring
+- Multi-chain campaign expansion
+- Ecosystem grant program
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
 
-## Support
+# 🤝 Contributing
+StellarAid is fully open-source and welcomes contributions from:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+- Blockchain engineers
+- Rust/Soroban developers
+- Full-stack devs
+- Designers & documentation writers
+- Community moderators
 
-## Stay in touch
+See CONTRIBUTING.md for contribution workflow, code style, and development setup.
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# 📜 License
+StellarAid is released under the MIT License, allowing free use, modification, and distribution with attribution.
 
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# 🌐 Join the StellarAid Journey
+Together, we can expand access to transparent, borderless fundraising — empowering communities and creators worldwide.

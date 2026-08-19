@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Keypair } from '@stellar/stellar-sdk';
 import { AuthService } from './auth.service';
 import { User } from './entities/user.entity';
+import { AuditLog, AuditAction } from './entities/audit-log.entity';
 import { RedisService } from '../redis/redis.service';
 
 jest.mock('@stellar/stellar-sdk', () => ({
@@ -13,7 +14,14 @@ jest.mock('@stellar/stellar-sdk', () => ({
 
 type MockFn = jest.Mock;
 type MockedRedis = Record<
-  'exists' | 'get' | 'del' | 'set' | 'sadd' | 'srem' | 'smembers',
+  | 'exists'
+  | 'get'
+  | 'del'
+  | 'set'
+  | 'setnx'
+  | 'sadd'
+  | 'srem'
+  | 'smembers',
   MockFn
 >;
 type MockedRepo = Record<'findOne' | 'create' | 'save', MockFn>;
@@ -34,11 +42,12 @@ describe('AuthService', () => {
   let redisService: MockedRedis;
   let userRepository: MockedRepo;
   let jwtService: MockedJwt;
+  let auditLogRepository: MockedRepo;
 
   const walletAddress =
     'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGXWKZMWL4M7RFCNARX6DOX';
 
-  const challenge = 'lumora-test-challenge-abc123';
+  const challengeString = 'stellaraid:login:abc123def456:1700000000';
   const signedChallenge = Buffer.from('mock-sig').toString('base64');
   const mockVerify = jest.fn();
 
@@ -51,6 +60,12 @@ describe('AuthService', () => {
     bio: null,
     verifiedStatus: false,
     kycStatus: 'not_submitted',
+    isSuspended: null,
+    suspensionReason: null,
+    email: null,
+    socialLinks: {},
+    lastLoginAt: null,
+    lastSessionAt: null,
     campaigns: [],
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -68,6 +83,7 @@ describe('AuthService', () => {
       get: jest.fn(),
       del: jest.fn(),
       set: jest.fn(),
+      setnx: jest.fn(),
       sadd: jest.fn(),
       srem: jest.fn(),
       smembers: jest.fn(),
@@ -82,11 +98,17 @@ describe('AuthService', () => {
       verifyAsync: jest.fn(),
       decodeAsync: jest.fn(),
     };
+    auditLogRepository = {
+      findOne: jest.fn(),
+      create: jest.fn(),
+      save: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: getRepositoryToken(User), useValue: userRepository },
+        { provide: getRepositoryToken(AuditLog), useValue: auditLogRepository },
         { provide: RedisService, useValue: redisService },
         { provide: JwtService, useValue: jwtService },
       ],
@@ -95,14 +117,92 @@ describe('AuthService', () => {
     service = module.get<AuthService>(AuthService);
   });
 
+  describe('challenge', () => {
+    beforeEach(() => {
+      redisService.set.mockResolvedValue(undefined);
+      redisService.get.mockResolvedValue(null);
+      redisService.del.mockResolvedValue(undefined);
+      auditLogRepository.save.mockResolvedValue({});
+    });
+
+    it('returns a challenge in the format stellaraid:login:<nonce>:<timestamp>', async () => {
+      const result = await service.challenge(walletAddress);
+
+      expect(result.challenge).toMatch(
+        /^stellaraid:login:[0-9a-f]{64}:\d+$/,
+      );
+    });
+
+    it('stores the challenge in Redis with UUID-based key and 5-minute TTL', async () => {
+      const result = await service.challenge(walletAddress);
+
+      // Should store challenge data as JSON under auth:challenge:<uuid>
+      expect(redisService.set).toHaveBeenCalledWith(
+        expect.stringMatching(/^auth:challenge:[0-9a-f-]{36}$/),
+        expect.stringContaining('"challengeId"'),
+        300,
+      );
+
+      // Should also store wallet -> challengeId mapping
+      expect(redisService.set).toHaveBeenCalledWith(
+        `auth:challenge:wallet:${walletAddress}`,
+        expect.any(String),
+        300,
+      );
+    });
+
+    it('generates a unique nonce on each call', async () => {
+      const first = await service.challenge(walletAddress);
+      const second = await service.challenge(walletAddress);
+
+      expect(first.challenge).not.toBe(second.challenge);
+    });
+
+    it('invalidates previous challenge when a new one is generated', async () => {
+      redisService.get.mockResolvedValue('previous-challenge-id');
+
+      await service.challenge(walletAddress);
+
+      // Should delete the previous challenge
+      expect(redisService.del).toHaveBeenCalledWith(
+        'auth:challenge:previous-challenge-id',
+      );
+    });
+
+    it('creates an audit log entry', async () => {
+      await service.challenge(walletAddress);
+
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.CHALLENGE_GENERATED,
+        }),
+      );
+    });
+  });
+
   describe('verify', () => {
+    const challengeId = 'test-challenge-id';
+    const challengeData = JSON.stringify({
+      challengeId,
+      challenge: challengeString,
+      walletAddress,
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+
     beforeEach(() => {
       redisService.exists.mockResolvedValue(false);
-      redisService.get.mockResolvedValue(challenge);
+      redisService.setnx.mockResolvedValue(true);
+      redisService.get
+        .mockResolvedValueOnce(challengeId) // wallet challenge key
+        .mockResolvedValueOnce(challengeData); // challenge data
       redisService.del.mockResolvedValue(undefined);
       redisService.set.mockResolvedValue(undefined);
       redisService.sadd.mockResolvedValue(1);
+      redisService.srem.mockResolvedValue(1);
+      redisService.smembers.mockResolvedValue([]);
       userRepository.findOne.mockResolvedValue(mockUser);
+      userRepository.save.mockResolvedValue(mockUser);
+      auditLogRepository.save.mockResolvedValue({});
     });
 
     it('returns accessToken and refreshToken on valid verification', async () => {
@@ -127,23 +227,55 @@ describe('AuthService', () => {
       );
     });
 
-    it('consumes the challenge from Redis on successful verification', async () => {
+    it('consumes the challenge atomically via SETNX', async () => {
       await service.verify({ walletAddress, signedChallenge });
 
-      expect(redisService.del).toHaveBeenCalledWith(
-        'auth:challenge:' + walletAddress,
-      );
-      expect(redisService.set).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'auth:challenge:consumed:' + walletAddress + ':',
-        ),
+      // Should use SETNX for atomic consumption
+      expect(redisService.setnx).toHaveBeenCalledWith(
+        expect.stringContaining('auth:challenge:consumed:'),
         '1',
         300,
       );
     });
 
+    it('deletes the challenge and wallet challenge key after verification', async () => {
+      await service.verify({ walletAddress, signedChallenge });
+
+      expect(redisService.del).toHaveBeenCalledWith(
+        `auth:challenge:${challengeId}`,
+      );
+      expect(redisService.del).toHaveBeenCalledWith(
+        `auth:challenge:wallet:${walletAddress}`,
+      );
+    });
+
+    it('updates user session metadata on successful login', async () => {
+      await service.verify({ walletAddress, signedChallenge });
+
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lastLoginAt: expect.any(Date),
+          lastSessionAt: expect.any(Date),
+        }),
+      );
+    });
+
     it('throws 401 "expired" when challenge is absent from Redis', async () => {
-      redisService.get.mockResolvedValue(null);
+      redisService.get.mockReset();
+      redisService.get.mockResolvedValue(null); // no wallet challenge key
+
+      const err = await service
+        .verify({ walletAddress, signedChallenge })
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect(reason(err)).toBe('expired');
+    });
+
+    it('throws 401 "expired" when challenge data is invalid JSON', async () => {
+      redisService.get
+        .mockResolvedValueOnce(challengeId)
+        .mockResolvedValueOnce('not-valid-json');
 
       const err = await service
         .verify({ walletAddress, signedChallenge })
@@ -190,14 +322,60 @@ describe('AuthService', () => {
       expect(reason(err)).toBe('replayed');
     });
 
-    it('does not touch Redis challenge key when challenge is already replayed', async () => {
+    it('throws 401 "replayed" when SETNX fails (concurrent consumption)', async () => {
+      // First call succeeds
+      await service.verify({ walletAddress, signedChallenge });
+
+      // Reset for second call - exists returns false but setnx returns false
+      redisService.exists.mockResolvedValue(false);
+      redisService.setnx.mockResolvedValue(false);
+      redisService.get
+        .mockResolvedValueOnce(challengeId)
+        .mockResolvedValueOnce(challengeData);
+
+      const err = await service
+        .verify({ walletAddress, signedChallenge })
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect(reason(err)).toBe('replayed');
+    });
+
+    it('creates replay detection audit log when challenge is reused', async () => {
       redisService.exists.mockResolvedValue(true);
 
       await service
         .verify({ walletAddress, signedChallenge })
         .catch(() => undefined);
 
-      expect(redisService.del).not.toHaveBeenCalled();
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.LOGIN_REPLAY_DETECTED,
+        }),
+      );
+    });
+
+    it('creates login success audit log', async () => {
+      await service.verify({ walletAddress, signedChallenge });
+
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.LOGIN_SUCCESS,
+        }),
+      );
+    });
+
+    it('rolls back consumed key when user creation fails', async () => {
+      userRepository.findOne.mockRejectedValue(new Error('db error'));
+
+      await service
+        .verify({ walletAddress, signedChallenge })
+        .catch(() => undefined);
+
+      // Should delete the consumed key on rollback
+      expect(redisService.del).toHaveBeenCalledWith(
+        expect.stringContaining('auth:challenge:consumed:'),
+      );
     });
   });
 
@@ -213,9 +391,17 @@ describe('AuthService', () => {
         jti: refreshJti,
         type: 'refresh',
       });
+      redisService.exists.mockResolvedValue(false); // not blacklisted
       redisService.get.mockResolvedValue(refreshToken);
-      userRepository.findOne.mockResolvedValue(mockUser);
+      redisService.set.mockResolvedValue(undefined);
+      redisService.del.mockResolvedValue(undefined);
+      redisService.srem.mockResolvedValue(1);
       redisService.sadd.mockResolvedValue(1);
+      redisService.smembers.mockResolvedValue([]);
+      userRepository.findOne.mockResolvedValue(mockUser);
+      userRepository.save.mockResolvedValue(mockUser);
+      jwtService.decodeAsync.mockResolvedValue({ jti: 'new-refresh-jti' });
+      auditLogRepository.save.mockResolvedValue({});
     });
 
     it('returns new accessToken and refreshToken for a valid refresh token', async () => {
@@ -226,53 +412,70 @@ describe('AuthService', () => {
       expect(jwtService.signAsync).toHaveBeenCalledTimes(2);
     });
 
-    it('rotates the refresh token: old refresh token stops working after new one is issued', async () => {
-      const firstResult = await service.refresh({ refreshToken });
+    it('blacklists the old refresh token before issuing new ones', async () => {
+      await service.refresh({ refreshToken });
 
-      expect(firstResult).toHaveProperty('refreshToken', 'mock-jwt-token');
+      // Should blacklist old token
+      expect(redisService.set).toHaveBeenCalledWith(
+        `auth:token:blacklist:${refreshJti}`,
+        '1',
+        expect.any(Number),
+      );
+
+      // Should delete old token from storage
       expect(redisService.del).toHaveBeenCalledWith(
         expect.stringMatching(/^auth:refresh:/),
       );
+
+      // Should remove from session set
       expect(redisService.srem).toHaveBeenCalledWith(
         expect.stringMatching(/^auth:sessions:/),
         refreshJti,
       );
+    });
 
-      const newRefreshToken = (redisService.set.mock.calls[0] as string[])[1];
+    it('detects use of blacklisted refresh token and revokes all sessions', async () => {
+      redisService.exists.mockResolvedValue(true); // token is blacklisted
+      redisService.smembers.mockResolvedValue(['jti-1', 'jti-2']);
 
-      redisService.get.mockResolvedValue(newRefreshToken);
-      redisService.del.mockClear();
-      redisService.srem.mockClear();
-      redisService.set.mockClear();
-      redisService.sadd.mockClear();
-
-      const secondResult = await service.refresh({
-        refreshToken: newRefreshToken,
-      });
-
-      expect(secondResult).toHaveProperty('refreshToken', 'mock-jwt-token');
-      expect(redisService.sadd).toHaveBeenCalledWith(
-        expect.stringMatching(/^auth:sessions:/),
-        expect.any(String),
-      );
-
-      redisService.get.mockResolvedValue(null);
       const err = await service
         .refresh({ refreshToken })
         .catch((e: unknown) => e);
 
       expect(err).toBeInstanceOf(UnauthorizedException);
+
+      // Should have triggered logoutAll - blacklisting all tokens
+      expect(redisService.set).toHaveBeenCalledWith(
+        expect.stringMatching(/^auth:token:blacklist:/),
+        '1',
+        expect.any(Number),
+      );
+
+      // Should create abuse detection audit log
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.SESSION_ABUSE_DETECTED,
+        }),
+      );
     });
 
-    it('removes the old refresh token from Redis and session set during rotation', async () => {
+    it('updates user session metadata on refresh', async () => {
       await service.refresh({ refreshToken });
 
-      expect(redisService.del).toHaveBeenCalledWith(
-        expect.stringMatching(/^auth:refresh:/),
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lastSessionAt: expect.any(Date),
+        }),
       );
-      expect(redisService.srem).toHaveBeenCalledWith(
-        expect.stringMatching(/^auth:sessions:/),
-        refreshJti,
+    });
+
+    it('creates token refreshed audit log', async () => {
+      await service.refresh({ refreshToken });
+
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.TOKEN_REFRESHED,
+        }),
       );
     });
 
@@ -333,12 +536,22 @@ describe('AuthService', () => {
         type: 'refresh',
       });
       redisService.del.mockResolvedValue(undefined);
+      redisService.set.mockResolvedValue(undefined);
       redisService.srem.mockResolvedValue(1);
+      auditLogRepository.save.mockResolvedValue({});
     });
 
-    it('invalidates the refresh token by deleting it from Redis', async () => {
+    it('blacklists and invalidates the refresh token', async () => {
       await service.logout({ refreshToken });
 
+      // Should blacklist the token
+      expect(redisService.set).toHaveBeenCalledWith(
+        `auth:token:blacklist:${refreshJti}`,
+        '1',
+        expect.any(Number),
+      );
+
+      // Should delete from storage
       expect(redisService.del).toHaveBeenCalledWith(
         expect.stringMatching(/^auth:refresh:/),
       );
@@ -350,6 +563,16 @@ describe('AuthService', () => {
       expect(redisService.srem).toHaveBeenCalledWith(
         expect.stringMatching(/^auth:sessions:/),
         refreshJti,
+      );
+    });
+
+    it('creates logout audit log', async () => {
+      await service.logout({ refreshToken });
+
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.LOGOUT,
+        }),
       );
     });
 
@@ -384,15 +607,25 @@ describe('AuthService', () => {
     beforeEach(() => {
       redisService.smembers.mockResolvedValue(jtis);
       redisService.del.mockResolvedValue(undefined);
+      redisService.set.mockResolvedValue(undefined);
+      auditLogRepository.save.mockResolvedValue({});
     });
 
-    it('deletes all refresh tokens for the user from Redis', async () => {
+    it('blacklists all refresh tokens before deleting them', async () => {
       await service.logoutAll(mockUser.id);
 
+      // Should blacklist each token
+      expect(redisService.set).toHaveBeenCalledTimes(jtis.length);
+      jtis.forEach((jti) => {
+        expect(redisService.set).toHaveBeenCalledWith(
+          `auth:token:blacklist:${jti}`,
+          '1',
+          expect.any(Number),
+        );
+      });
+
+      // Should delete each token from storage
       expect(redisService.del).toHaveBeenCalledTimes(jtis.length + 1);
-      expect(redisService.del).toHaveBeenCalledWith(
-        expect.stringMatching(/^auth:sessions:/),
-      );
       jtis.forEach((jti) => {
         expect(redisService.del).toHaveBeenCalledWith(`auth:refresh:${jti}`);
       });
@@ -406,6 +639,17 @@ describe('AuthService', () => {
       );
     });
 
+    it('creates logout all audit log with revoked count', async () => {
+      await service.logoutAll(mockUser.id);
+
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.LOGOUT_ALL,
+          details: { revokedCount: 3 },
+        }),
+      );
+    });
+
     it('handles users with no active sessions gracefully', async () => {
       redisService.smembers.mockResolvedValue([]);
 
@@ -415,10 +659,20 @@ describe('AuthService', () => {
         `auth:sessions:${mockUser.id}`,
       );
       expect(redisService.del).toHaveBeenCalledTimes(1);
+      // Should not blacklist anything since there are no tokens
+      expect(redisService.set).not.toHaveBeenCalledWith(
+        expect.stringMatching(/^auth:token:blacklist:/),
+        expect.anything(),
+        expect.anything(),
+      );
     });
   });
 
   describe('revokeAccessToken', () => {
+    beforeEach(() => {
+      auditLogRepository.save.mockResolvedValue({});
+    });
+
     it('stores the jti in the blacklist with the given TTL', async () => {
       await service.revokeAccessToken('access-jti-1', 900);
 
@@ -428,47 +682,16 @@ describe('AuthService', () => {
         900,
       );
     });
-  });
 
-  describe('challenge', () => {
-    beforeEach(() => {
-      redisService.set.mockResolvedValue(undefined);
-    });
+    it('creates token revoked audit log', async () => {
+      await service.revokeAccessToken('access-jti-1', 900);
 
-    it('returns a challenge in the format stellaraid:login:<nonce>:<timestamp>', async () => {
-      const result = await service.challenge(walletAddress);
-
-      expect(result.challenge).toMatch(/^stellaraid:login:[0-9a-f]{64}:\d+$/);
-    });
-
-    it('stores the challenge in Redis with a 5-minute TTL', async () => {
-      const result = await service.challenge(walletAddress);
-
-      expect(redisService.set).toHaveBeenCalledWith(
-        'auth:challenge:' + walletAddress,
-        result.challenge,
-        300,
+      expect(auditLogRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.TOKEN_REVOKED,
+          details: { jti: 'access-jti-1', tokenType: 'access', ttl: 900 },
+        }),
       );
-    });
-
-    it('generates a unique nonce on each call', async () => {
-      const first = await service.challenge(walletAddress);
-      const second = await service.challenge(walletAddress);
-
-      expect(first.challenge).not.toBe(second.challenge);
-    });
-
-    it('an expired challenge returns null from Redis and cannot be verified', async () => {
-      await service.challenge(walletAddress);
-
-      redisService.get.mockResolvedValue(null);
-
-      const err = await service
-        .verify({ walletAddress, signedChallenge })
-        .catch((e: unknown) => e);
-
-      expect(err).toBeInstanceOf(UnauthorizedException);
-      expect(reason(err)).toBe('expired');
     });
   });
 
