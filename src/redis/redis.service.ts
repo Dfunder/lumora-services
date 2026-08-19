@@ -1,17 +1,13 @@
-import {
-  Injectable,
-  Inject,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Inject, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import Redis from 'ioredis';
 import redisConfig from '../config/redis.config';
+import { logger } from '../common/logger/logger';
+import correlation from '../common/correlation/correlation.service';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(RedisService.name);
+  // use centralized structured logger
   private readonly redis: Redis;
 
   constructor(
@@ -35,16 +31,19 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     try {
       await this.redis.connect();
-      this.logger.log('Connected to Redis successfully');
+      const ctx = correlation.get();
+      logger.info('redis.connected', { correlationId: ctx.correlationId, msg: 'Connected to Redis successfully' });
     } catch (error) {
-      this.logger.error('Failed to connect to Redis', error);
+      const ctx = correlation.get();
+      logger.error('redis.connect_failure', { correlationId: ctx.correlationId, error });
       throw error;
     }
   }
 
   async onModuleDestroy() {
     await this.redis.disconnect();
-    this.logger.log('Disconnected from Redis');
+    const ctx = correlation.get();
+    logger.info('redis.disconnected', { correlationId: ctx.correlationId, msg: 'Disconnected from Redis' });
   }
 
   getClient(): Redis {

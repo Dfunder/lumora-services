@@ -11,6 +11,8 @@ import { RefreshAuthDto } from './dto/refresh-auth.dto';
 import { LogoutAuthDto } from './dto/logout-auth.dto';
 import { AUTH_CONSTANTS } from './constants/auth.constant';
 import { JwtPayload } from './guards/jwt-auth.guard';
+import { logger } from '../common/logger/logger';
+import correlation from '../common/correlation/correlation.service';
 
 @Injectable()
 export class AuthService {
@@ -24,6 +26,8 @@ export class AuthService {
   ) {}
 
   async challenge(walletAddress: string): Promise<{ challenge: string }> {
+    const ctx = correlation.get();
+    logger.info('auth.challenge.start', { walletAddress, correlationId: ctx.correlationId });
     const nonce = crypto.randomBytes(32).toString('hex');
     const timestamp = Math.floor(Date.now() / 1000);
     const challengeString = `stellaraid:login:${nonce}:${timestamp}`;
@@ -35,12 +39,16 @@ export class AuthService {
       this.CHALLENGE_TTL,
     );
 
+    logger.info('auth.challenge.issued', { walletAddress, correlationId: ctx.correlationId });
+
     return { challenge: challengeString };
   }
 
   async verify(
     dto: VerifyAuthDto,
   ): Promise<{ accessToken: string; refreshToken: string }> {
+    const ctx = correlation.get();
+    logger.info('auth.verify.start', { walletAddress: dto.walletAddress, correlationId: ctx.correlationId });
     const { walletAddress, signedChallenge } = dto;
 
     const consumedKey = this.getConsumedKey(walletAddress, signedChallenge);
@@ -71,6 +79,8 @@ export class AuthService {
     await this.redisService.set(consumedKey, '1', this.CHALLENGE_TTL);
 
     const user = await this.findOrCreateUser(walletAddress);
+
+    logger.info('auth.verify.success', { walletAddress, userId: user.id, correlationId: ctx.correlationId });
 
     return this.issueTokens(user);
   }
@@ -154,6 +164,8 @@ export class AuthService {
   private async issueTokens(
     user: User,
   ): Promise<{ accessToken: string; refreshToken: string }> {
+    const ctx = correlation.get();
+    logger.info('auth.issueTokens.start', { userId: user.id, walletAddress: user.walletAddress, correlationId: ctx.correlationId });
     const accessJti = crypto.randomUUID();
     const refreshJti = crypto.randomUUID();
     const payload = {
@@ -191,6 +203,8 @@ export class AuthService {
       ),
     ]);
 
+    logger.info('auth.issueTokens.complete', { userId: user.id, correlationId: ctx.correlationId });
+
     return { accessToken, refreshToken };
   }
 
@@ -204,6 +218,8 @@ export class AuthService {
   }
 
   async findOrCreateUser(walletAddress: string): Promise<User> {
+    const ctx = correlation.get();
+    logger.info('auth.findOrCreateUser.start', { walletAddress, correlationId: ctx.correlationId });
     const adminWallets = process.env.ADMIN_ALLOWLIST
       ? process.env.ADMIN_ALLOWLIST.split(',').map(w => w.trim().toLowerCase())
       : [];

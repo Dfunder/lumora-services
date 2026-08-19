@@ -3,6 +3,8 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import type { ConfigType } from '@nestjs/config';
 import bullConfig from '../config/bull.config';
+import correlation from '../common/correlation/correlation.service';
+import { logger } from '../common/logger/logger';
 import type { EmailJobData } from './processors/email.processor';
 import type { ContractEventData } from './processors/contract-events.processor';
 import type { AnalyticsEventData } from './processors/analytics.processor';
@@ -22,7 +24,9 @@ export class QueueService {
 
   // Email queue methods
   async sendNotificationEmail(data: EmailJobData, delay?: number) {
-    return await this.emailQueue.add('send-notification', data, {
+    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
+    logger.info('queue.enqueue', { queue: 'email-queue', job: 'send-notification', correlationId: correlation.get().correlationId });
+    return await this.emailQueue.add('send-notification', enriched, {
       delay,
       ...this.config.defaultJobOptions,
     });
@@ -44,7 +48,9 @@ export class QueueService {
 
   // Contract events queue methods
   async processDonationEvent(data: ContractEventData) {
-    return await this.contractEventsQueue.add('process-donation', data, {
+    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
+    logger.info('queue.enqueue', { queue: 'contract-events-queue', job: 'process-donation', correlationId: correlation.get().correlationId });
+    return await this.contractEventsQueue.add('process-donation', enriched, {
       ...this.config.defaultJobOptions,
       priority: 10, // High priority for financial events
     });
@@ -76,7 +82,9 @@ export class QueueService {
 
   // Analytics queue methods
   async trackPageView(data: AnalyticsEventData) {
-    return await this.analyticsQueue.add('track-page-view', data, {
+    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
+    logger.info('queue.enqueue', { queue: 'analytics-queue', job: 'track-page-view', correlationId: correlation.get().correlationId });
+    return await this.analyticsQueue.add('track-page-view', enriched, {
       ...this.config.defaultJobOptions,
       priority: 1, // Low priority
     });
