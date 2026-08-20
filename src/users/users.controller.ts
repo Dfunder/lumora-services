@@ -21,8 +21,8 @@ import { AdminSearchQueryDto } from './dto/admin-search-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../common/guards/admin.guard';
 import { Public } from '../auth/decorators/public.decorator';
-import { ApiException } from 'src/common/errors/api-exception';
-import { ErrorCode } from 'src/common/errors/error-codes';
+import { ApiException } from '../common/errors/api-exception';
+import { ErrorCode } from '../common/errors/error-codes';
 
 @ApiTags('users')
 @Controller()
