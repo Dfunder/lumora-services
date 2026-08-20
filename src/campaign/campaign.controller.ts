@@ -25,14 +25,49 @@ import { CreateDraftDto } from './dto/create-draft.dto';
 import { UpdateDraftDto } from './dto/update-draft.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
-import { Public } from 'src/auth/decorators/public.decorator';
-import { ApiException } from 'src/common/errors/api-exception';
-import { ErrorCode } from 'src/common/errors/error-codes';
+import { MilestoneReleaseRequestDto } from './dto/release-request.dto';
+import { Public } from '../auth/decorators/public.decorator';
+import { ApiException } from '../common/errors/api-exception';
+import { ErrorCode } from '../common/errors/error-codes';
 
 @ApiTags('campaigns')
 @Controller('campaigns')
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
+
+  @Public()
+  @Get(':id/milestones')
+  @ApiOperation({ summary: 'Get status and history of campaign milestones' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  @ApiResponse({ status: 200, description: 'Milestones returned' })
+  async getCampaignMilestones(@Param('id') id: string) {
+    return this.campaignsService.getCampaignMilestones(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Request release of an unlocked milestone (creator-only)' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  @ApiParam({ name: 'milestoneId', description: 'Milestone ID' })
+  @ApiBody({ type: MilestoneReleaseRequestDto })
+  @ApiResponse({ status: 200, description: 'Milestone release requested and processed' })
+  @ApiResponse({ status: 400, description: 'Milestone not unlocked or invalid request', type: ApiException })
+  @ApiResponse({ status: 403, description: 'Forbidden - creator only', type: ApiException })
+  @Post(':id/milestones/:milestoneId/release-request')
+  async requestMilestoneRelease(
+    @Param('id') id: string,
+    @Param('milestoneId') milestoneId: string,
+    @Req() req: any,
+    @Body() dto: MilestoneReleaseRequestDto,
+  ) {
+    const creatorId = req.user?.id ?? req.user?.userId;
+    return this.campaignsService.requestMilestoneRelease(
+      id,
+      milestoneId,
+      creatorId,
+      dto.signaturePayload,
+    );
+  }
 
   @Public()
   @Get(':id')
