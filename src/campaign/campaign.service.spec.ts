@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { getQueueToken } from '@nestjs/bull';
 import { CampaignsService } from './campaign.service';
 import { Campaign, CampaignStatus } from './entities/campaign.entity';
 import { CampaignDraft } from './entities/campaign-draft.entity';
@@ -19,6 +20,7 @@ describe('CampaignsService', () => {
   const mockCampaignRepo = {
     create: jest.fn().mockImplementation((dto) => dto),
     save: jest.fn().mockImplementation((dto) => Promise.resolve({ id: 'campaign-1', ...dto })),
+    findOne: jest.fn(),
   };
 
   const mockDraftRepo = {
@@ -62,6 +64,7 @@ describe('CampaignsService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        { provide: getQueueToken('analytics'), useValue: { add: jest.fn() } },
       ],
     }).compile();
 
@@ -151,8 +154,9 @@ describe('CampaignsService', () => {
     it('should return 30-day donation trends, asset breakdown, and top donors for the creator or an admin', async () => {
       mockCampaignRepo.findOne.mockResolvedValue({ id: 'campaign-1', creatorId: 'user-123' });
       redisService.get.mockResolvedValue(null);
-      prismaService.$queryRaw.mockImplementation(async (query: string) => {
-        if (query.includes('asset')) {
+      prismaService.$queryRaw.mockImplementation(async (queryArg: any) => {
+        const query = Array.isArray(queryArg) ? queryArg.join('') : String(queryArg);
+        if (query.includes('asset') || query.includes('currency')) {
           return [
             { asset: 'XLM', total: '1500', count: 3 },
             { asset: 'USDC', total: '500', count: 1 },

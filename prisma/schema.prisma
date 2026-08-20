@@ -2,8 +2,7 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -37,6 +36,9 @@ enum DonationStatus {
 
 enum MilestoneStatus {
   PENDING
+  LOCKED
+  UNLOCKED
+  RELEASE_REQUESTED
   APPROVED
   RELEASED
   REJECTED
@@ -84,23 +86,6 @@ model Campaign {
   creatorId    String
   title        String
   description  String
-
-model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String
-  action    String
-  details   Json
-  createdAt DateTime @default(now())
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Indices
-  @@index([userId])
-  @@index([action])
-  @@index([createdAt])
-}
-
   goalAmount   Decimal        @db.Decimal(18, 7)
   raisedAmount Decimal        @default(0) @db.Decimal(18, 7)
   currency     String         @default("XLM")
@@ -117,7 +102,8 @@ model AuditLog {
   milestones Milestone[]
   updates    Update[]
   disputes   Dispute[]
-  isFeatured Boolean @default(false)
+  contracts  Contract[]
+  isFeatured Boolean     @default(false)
 
   // Indices for frequently queried fields
   @@index([creatorId])
@@ -125,21 +111,22 @@ model AuditLog {
   @@index([createdAt])
   @@index([endDate])
   @@index([category])
-  @@index([title, description]) // Full-text search support
 }
 
 model Donation {
-  id              String         @id @default(uuid())
-  campaignId      String
-  donorId         String?
-  amount          Decimal        @db.Decimal(18, 7)
-  currency        String         @default("XLM")
-  status          DonationStatus @default(PENDING)
-  transactionHash String?        @unique
-  message         String?
-  isAnonymous     Boolean        @default(false)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id                 String         @id @default(uuid())
+  campaignId         String
+  donorId            String?
+  amount             Decimal        @db.Decimal(18, 7)
+  currency           String         @default("XLM")
+  status             DonationStatus @default(PENDING)
+  transactionHash    String?        @unique
+  message            String?
+  isAnonymous        Boolean        @default(false)
+  usdAmount          Decimal?       @db.Decimal(18, 7)
+  usdRateAtDonation  Decimal?       @db.Decimal(18, 7)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   // Relations
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -154,24 +141,59 @@ model Donation {
 }
 
 model Milestone {
-  id          String          @id @default(uuid())
-  campaignId  String
-  title       String
-  description String
-  amount      Decimal         @db.Decimal(18, 7)
-  status      MilestoneStatus @default(PENDING)
-  dueDate     DateTime?
-  completedAt DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id               String                   @id @default(uuid())
+  campaignId       String
+  title            String
+  description      String
+  amount           Decimal                  @db.Decimal(18, 7)
+  targetAmount     Decimal?                 @db.Decimal(18, 7)
+  status           MilestoneStatus          @default(LOCKED)
+  signaturePayload String?
+  txHash           String?
+  dueDate          DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 
   // Relations
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign      Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  statusHistory MilestoneStatusHistory[]
 
   // Indices
   @@index([campaignId])
   @@index([status])
   @@index([dueDate])
+}
+
+model MilestoneStatusHistory {
+  id          String           @id @default(uuid())
+  milestoneId String
+  fromStatus  MilestoneStatus?
+  toStatus    MilestoneStatus
+  changedBy   String?
+  txHash      String?
+  createdAt   DateTime         @default(now())
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+  @@index([createdAt])
+}
+
+model Contract {
+  id              String   @id @default(uuid())
+  contractId      String   @unique
+  campaignId      String
+  network         String   @default("testnet")
+  deployedAt      DateTime @default(now())
+  deployerAddress String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([contractId])
 }
 
 model Update {

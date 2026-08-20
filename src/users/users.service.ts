@@ -1,3 +1,5 @@
+import correlation from '../common/correlation/correlation.service';
+import { logger } from '../common/logger/logger';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
@@ -17,8 +19,7 @@ export class UsersService {
   ) {}
 
   async getPublicProfile(walletAddress: string): Promise<PublicProfileDto> {
-    const ctx = (await import('../common/correlation/correlation.service')).default.get();
-    const logger = (await import('../common/logger/logger')).logger ?? (await import('../common/logger/logger')).default;
+    const ctx = correlation.get();
     logger.info('users.getPublicProfile.start', { walletAddress, correlationId: ctx.correlationId });
     const user = await this.userRepository.findOne({
       where: { walletAddress },
@@ -39,8 +40,7 @@ export class UsersService {
   async searchUsers(
     query: AdminSearchQueryDto,
   ): Promise<AdminSearchResponseDto> {
-    const ctx = (await import('../common/correlation/correlation.service')).default.get();
-    const logger = (await import('../common/logger/logger')).logger ?? (await import('../common/logger/logger')).default;
+    const ctx = correlation.get();
     logger.info('users.searchUsers.start', { query, correlationId: ctx.correlationId });
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
