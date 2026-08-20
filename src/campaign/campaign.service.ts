@@ -21,6 +21,8 @@ import { InjectQueue } from '@nestjs/bull';
 import { logger } from '../common/logger/logger';
 import correlation from '../common/correlation/correlation.service';
 
+import { SorobanService } from '../contract/soroban.service';
+
 const MAX_DRAFTS_PER_USER = 5;
 
 @Injectable()
@@ -35,6 +37,7 @@ export class CampaignsService {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly sorobanService: SorobanService,
     @InjectQueue('analytics') private readonly analyticsQueue: Queue,
   ) {}
 
@@ -102,14 +105,18 @@ export class CampaignsService {
     return await this.campaignRepository.save(campaign);
   }
 
-  // ─── 1. Publish Campaign ──────────────────────────────────────────────────
+  // ─── 1. Publish Campaign (With Transactional Milestones Max 5) ─────────────
   async createCampaign(
     creatorId: string,
     dto: CreateCampaignDto,
   ): Promise<Campaign> {
     const ctx = correlation.get();
     logger.info('campaign.create.start', { creatorId, correlationId: ctx.correlationId });
-    // Check feature flag for ISSUE-020 review workflow
+
+    if (dto.milestones && dto.milestones.length > 5) {
+      throw new BadRequestException('A campaign can have a maximum of 5 milestones.');
+    }
+
     const isApprovalEnabled =
       this.configService.get<string>('APPROVAL_WORKFLOW_ENABLED') === 'true';
 
@@ -117,14 +124,44 @@ export class CampaignsService {
       ? CampaignStatus.PENDING_REVIEW
       : CampaignStatus.ACTIVE;
 
+    // Sort milestones ascending by targetAmount
+    const sortedMilestones = (dto.milestones ?? [])
+      .slice()
+      .sort((a, b) => Number(a.targetAmount) - Number(b.targetAmount));
+
     const campaign = this.campaignRepository.create({
       ...dto,
-      creatorId, // Injected directly from JWT context
+      creatorId,
       status,
       endDate: new Date(dto.endDate),
     });
 
     const saved = await this.campaignRepository.save(campaign);
+
+    // Transactionally create milestones in Prisma
+    if (sortedMilestones.length > 0) {
+      await this.prisma.$transaction(
+        sortedMilestones.map((m) =>
+          this.prisma.milestone.create({
+            data: {
+              campaignId: saved.id,
+              title: m.title,
+              description: m.description,
+              amount: m.targetAmount,
+              targetAmount: m.targetAmount,
+              status: 'LOCKED',
+              statusHistory: {
+                create: {
+                  toStatus: 'LOCKED',
+                  changedBy: creatorId,
+                },
+              },
+            },
+          }),
+        ),
+      );
+    }
+
     // Business event
     (await import('../common/events/event.logger')).logEvent('campaign.created', {
       campaignId: saved.id,
@@ -133,6 +170,147 @@ export class CampaignsService {
 
     logger.info('campaign.create.complete', { campaignId: saved.id, creatorId: saved.creatorId, correlationId: ctx.correlationId });
     return saved;
+  }
+
+  // ─── Milestone Workflows (Issue #38 & #39) ───────────────────────────────
+
+  async getCampaignMilestones(campaignId: string) {
+    const milestones = await this.prisma.milestone.findMany({
+      where: { campaignId },
+      orderBy: { targetAmount: 'asc' },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    return milestones;
+  }
+
+  async requestMilestoneRelease(
+    campaignId: string,
+    milestoneId: string,
+    creatorId: string,
+    signaturePayload: string,
+  ) {
+    const campaign = await this.campaignRepository.findOne({ where: { id: campaignId } });
+    if (!campaign) {
+      throw new NotFoundException(`Campaign with ID ${campaignId} not found`);
+    }
+
+    if (campaign.creatorId !== creatorId) {
+      throw new ForbiddenException('Only the campaign creator can request a milestone release');
+    }
+
+    const milestone = await this.prisma.milestone.findUnique({
+      where: { id: milestoneId },
+    });
+
+    if (!milestone || milestone.campaignId !== campaignId) {
+      throw new NotFoundException(`Milestone with ID ${milestoneId} not found for this campaign`);
+    }
+
+    if (milestone.status !== 'UNLOCKED') {
+      throw new BadRequestException(
+        `Milestone cannot be released. Current status is ${milestone.status}, but must be UNLOCKED`,
+      );
+    }
+
+    // Update status to RELEASE_REQUESTED with signature payload
+    await this.prisma.milestone.update({
+      where: { id: milestoneId },
+      data: {
+        status: 'RELEASE_REQUESTED',
+        signaturePayload,
+        statusHistory: {
+          create: {
+            fromStatus: 'UNLOCKED',
+            toStatus: 'RELEASE_REQUESTED',
+            changedBy: creatorId,
+          },
+        },
+      },
+    });
+
+    // Trigger on-chain release via SorobanService
+    let onChainResult;
+    try {
+      onChainResult = await this.sorobanService.invokeContract(
+        campaign.contractId ?? 'C_MOCK',
+        'release_milestone',
+        [milestoneId, signaturePayload],
+      );
+    } catch (error: any) {
+      logger.error('milestone.release.onChainError', { milestoneId, error: error.message });
+      throw new BadRequestException(`On-chain release failed: ${error.message}`);
+    }
+
+    const txHash = onChainResult?.transactionHash ?? `tx_${Date.now()}`;
+
+    // Mark as RELEASED upon on-chain completion
+    const updated = await this.prisma.milestone.update({
+      where: { id: milestoneId },
+      data: {
+        status: 'RELEASED',
+        txHash,
+        completedAt: new Date(),
+        statusHistory: {
+          create: {
+            fromStatus: 'RELEASE_REQUESTED',
+            toStatus: 'RELEASED',
+            changedBy: creatorId,
+            txHash,
+          },
+        },
+      },
+      include: {
+        statusHistory: true,
+      },
+    });
+
+    return updated;
+  }
+
+  async checkMilestoneUnlocks(campaignId: string) {
+    const totalDonatedAggregate = await this.prisma.donation.aggregate({
+      where: { campaignId, status: 'COMPLETED' },
+      _sum: { amount: true },
+    });
+
+    const totalRaised = Number(totalDonatedAggregate._sum.amount ?? 0);
+
+    const lockedMilestones = await this.prisma.milestone.findMany({
+      where: { campaignId, status: 'LOCKED' },
+    });
+
+    const unlocked: string[] = [];
+
+    for (const milestone of lockedMilestones) {
+      const target = Number(milestone.targetAmount ?? milestone.amount);
+      if (totalRaised >= target) {
+        // Atomic race-condition safe update: only update if status is STILL 'LOCKED'
+        const updated = await this.prisma.milestone.updateMany({
+          where: { id: milestone.id, status: 'LOCKED' },
+          data: { status: 'UNLOCKED' },
+        });
+
+        if (updated.count > 0) {
+          unlocked.push(milestone.id);
+          await this.prisma.milestoneStatusHistory.create({
+            data: {
+              milestoneId: milestone.id,
+              fromStatus: 'LOCKED',
+              toStatus: 'UNLOCKED',
+              changedBy: 'system',
+            },
+          });
+          logger.info('milestone.autoUnlocked', { milestoneId: milestone.id, campaignId, totalRaised });
+        }
+      }
+    }
+
+    return unlocked;
   }
 
   // ─── 2. Create Draft (Max 5 Limit) ────────────────────────────────────────
