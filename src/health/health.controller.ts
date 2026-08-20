@@ -5,6 +5,7 @@ import { RedisHealthService } from '../redis/redis-health.service';
 import { QueueService } from '../queues/queue.service';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ContractEventStreamerService } from '../contract-event-streamer/contract-event-streamer.service';
 
 @ApiTags('health')
 @Controller('health')
@@ -16,6 +17,7 @@ export class HealthController {
     private readonly redisHealthService: RedisHealthService,
     private readonly queueService: QueueService,
     private readonly configService: ConfigService,
+    private readonly streamerService: ContractEventStreamerService,
   ) {
     const horizonUrl = this.configService.get<string>('HORIZON_URL') || 'https://horizon.stellar.org';
     this.horizonServer = new Server(horizonUrl);
@@ -25,17 +27,21 @@ export class HealthController {
   @ApiResponse({ status: 200, description: 'Health status returned' })
   @Get()
   async checkHealth() {
-    const [postgresHealth, redisHealth, horizonHealth, queueStats] = await Promise.all([
-      this.checkPostgres(),
-      this.redisHealthService.checkHealth(),
-      this.checkHorizon(),
-      this.queueService.getQueueStats(),
-    ]);
+    const [postgresHealth, redisHealth, horizonHealth, queueStats, streamerStatus, deadLetterCount] =
+      await Promise.all([
+        this.checkPostgres(),
+        this.redisHealthService.checkHealth(),
+        this.checkHorizon(),
+        this.queueService.getQueueStats(),
+        this.streamerService.getStatus(),
+        this.streamerService.getDeadLetterCount(),
+      ]);
 
-    const allUp = 
-      postgresHealth.status === 'up' && 
-      redisHealth.status === 'up' && 
-      horizonHealth.status === 'up';
+    const allUp =
+      postgresHealth.status === 'up' &&
+      redisHealth.status === 'up' &&
+      horizonHealth.status === 'up' &&
+      streamerStatus.running;
 
     return {
       status: allUp ? 'healthy' : 'unhealthy',
@@ -47,6 +53,17 @@ export class HealthController {
         queues: {
           status: 'up',
           stats: queueStats,
+        },
+        contractStreamer: {
+          status: streamerStatus.running ? 'up' : 'down',
+          info: {
+            running: streamerStatus.running,
+            cursor: streamerStatus.cursor,
+            lastLedger: streamerStatus.lastLedger,
+            contractIds: streamerStatus.contractIds,
+            pollingIntervalMs: streamerStatus.pollingIntervalMs,
+            deadLetterCount,
+          },
         },
       },
     };
@@ -67,16 +84,18 @@ export class HealthController {
   @ApiResponse({ status: 503, description: 'Some dependencies are not ready' })
   @Get('ready')
   async checkReadiness() {
-    const [postgresHealth, redisHealth, horizonHealth] = await Promise.all([
+    const [postgresHealth, redisHealth, horizonHealth, streamerStatus] = await Promise.all([
       this.checkPostgres(),
       this.redisHealthService.checkHealth(),
       this.checkHorizon(),
+      this.streamerService.getStatus(),
     ]);
 
-    const allUp = 
-      postgresHealth.status === 'up' && 
-      redisHealth.status === 'up' && 
-      horizonHealth.status === 'up';
+    const allUp =
+      postgresHealth.status === 'up' &&
+      redisHealth.status === 'up' &&
+      horizonHealth.status === 'up' &&
+      streamerStatus.running;
 
     return {
       status: allUp ? 'ready' : 'not_ready',
@@ -85,6 +104,14 @@ export class HealthController {
         postgres: postgresHealth,
         redis: redisHealth,
         horizon: horizonHealth,
+        contractStreamer: {
+          status: streamerStatus.running ? 'up' : 'down',
+          info: {
+            running: streamerStatus.running,
+            cursor: streamerStatus.cursor,
+            lastLedger: streamerStatus.lastLedger,
+          },
+        },
       },
     };
   }
@@ -151,6 +178,24 @@ export class HealthController {
     return {
       status: 'up',
       stats,
+    };
+  }
+
+  @ApiOperation({ summary: 'Check contract event streamer status' })
+  @ApiResponse({ status: 200, description: 'Streamer status returned' })
+  @Get('contract-streamer')
+  async checkContractStreamer() {
+    const [status, deadLetterCount] = await Promise.all([
+      this.streamerService.getStatus(),
+      this.streamerService.getDeadLetterCount(),
+    ]);
+
+    return {
+      status: status.running ? 'up' : 'down',
+      info: {
+        ...status,
+        deadLetterCount,
+      },
     };
   }
 }

@@ -103,7 +103,7 @@ async function flushPromises() {
 
 describe('ContractEventStreamerService', () => {
   let service: ContractEventStreamerService;
-  let redisService: { get: jest.Mock; set: jest.Mock };
+  let redisService: { get: jest.Mock; set: jest.Mock; sadd: jest.Mock; srem: jest.Mock; smembers: jest.Mock; del: jest.Mock };
   let queueService: {
     processDonationEvent: jest.Mock;
     processMilestoneReleasedEvent: jest.Mock;
@@ -120,7 +120,7 @@ describe('ContractEventStreamerService', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
 
-    redisService = { get: jest.fn(), set: jest.fn() };
+    redisService = { get: jest.fn(), set: jest.fn(), sadd: jest.fn(), srem: jest.fn(), smembers: jest.fn(), del: jest.fn() };
     queueService = {
       processDonationEvent: jest.fn().mockResolvedValue({ id: 'job-1' }),
       processMilestoneReleasedEvent: jest
@@ -559,6 +559,145 @@ describe('ContractEventStreamerService', () => {
 
       const status = await service.getStatus();
       expect(status.running).toBe(true);
+    });
+  });
+
+  // ── dead-letter queue ──────────────────────────────────────────
+
+  describe('dead-letter queue', () => {
+    it('dead-letters an event when Bull queue dispatch fails', async () => {
+      redisService.get.mockResolvedValue('cursor-dlq');
+      redisService.sadd.mockResolvedValue(1);
+      redisService.srem.mockResolvedValue(1);
+      redisService.del.mockResolvedValue(undefined);
+      queueService.processDonationEvent.mockRejectedValue(
+        new Error('queue full'),
+      );
+      mockGetEvents.mockResolvedValue(
+        makeGetEventsResponse([
+          makeEvent({
+            id: 'evt-dlq-1',
+            txHash: 'tx-dlq-1',
+            ledger: 2000,
+            contractAddress: 'CContract1111',
+            topic: [makeScvSymbol('DonationReceived')],
+          }),
+        ]),
+      );
+
+      await service.startStreaming();
+      await flushPromises();
+
+      // Should have tried to dispatch
+      expect(queueService.processDonationEvent).toHaveBeenCalledTimes(1);
+
+      // Should have stored in DLQ
+      expect(redisService.set).toHaveBeenCalledWith(
+        expect.stringContaining('contract-event-streamer:dlq:tx-dlq-1:'),
+        expect.any(String),
+        expect.any(Number),
+      );
+
+      // Should have added to DLQ set
+      expect(redisService.sadd).toHaveBeenCalledWith(
+        'contract-event-streamer:dlq',
+        expect.stringContaining('contract-event-streamer:dlq:tx-dlq-1:'),
+      );
+    });
+
+    it('returns correct dead-letter count', async () => {
+      redisService.smembers.mockResolvedValue([
+        'contract-event-streamer:dlq:tx-1:1000',
+        'contract-event-streamer:dlq:tx-2:2000',
+      ]);
+
+      const count = await service.getDeadLetterCount();
+      expect(count).toBe(2);
+      expect(redisService.smembers).toHaveBeenCalledWith(
+        'contract-event-streamer:dlq',
+      );
+    });
+
+    it('lists dead-lettered events with parsed JSON', async () => {
+      redisService.smembers.mockResolvedValue([
+        'contract-event-streamer:dlq:tx-1:1000',
+      ]);
+      redisService.get.mockResolvedValue(
+        JSON.stringify({
+          eventType: 'donation',
+          transactionHash: 'tx-1',
+          blockNumber: 1500,
+          contractAddress: 'CContract1111',
+          eventData: {},
+          _dlq: {
+            failedAt: '2026-08-20T00:00:00.000Z',
+            error: 'queue full',
+          },
+        }),
+      );
+
+      const entries = await service.listDeadLetters();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].transactionHash).toBe('tx-1');
+      expect(entries[0]._dlq.error).toBe('queue full');
+    });
+
+    it('cleans up expired keys from DLQ set during list', async () => {
+      redisService.smembers.mockResolvedValue([
+        'contract-event-streamer:dlq:tx-1:1000',
+        'contract-event-streamer:dlq:tx-2:2000',
+      ]);
+      redisService.get
+        .mockResolvedValueOnce(JSON.stringify({ transactionHash: 'tx-1' }))
+        .mockResolvedValueOnce(null); // second key expired
+      redisService.srem.mockResolvedValue(1);
+
+      const entries = await service.listDeadLetters();
+      expect(entries).toHaveLength(1);
+      expect(redisService.srem).toHaveBeenCalledWith(
+        'contract-event-streamer:dlq',
+        'contract-event-streamer:dlq:tx-2:2000',
+      );
+    });
+
+    it('replays a dead-lettered event and removes from DLQ', async () => {
+      redisService.get.mockResolvedValue(
+        JSON.stringify({
+          eventType: 'donation',
+          transactionHash: 'tx-replay',
+          blockNumber: 3000,
+          contractAddress: 'CContract1111',
+          eventData: {},
+        }),
+      );
+      redisService.del.mockResolvedValue(undefined);
+      redisService.srem.mockResolvedValue(1);
+      queueService.processDonationEvent.mockResolvedValue({ id: 'job-replay' });
+
+      const result = await service.replayDeadLetter('tx-replay:1234');
+
+      expect(result).toBe(true);
+      expect(queueService.processDonationEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'donation',
+          transactionHash: 'tx-replay',
+        }),
+      );
+      // Should clean up after successful replay
+      expect(redisService.del).toHaveBeenCalledWith(
+        'contract-event-streamer:dlq:tx-replay:1234',
+      );
+      expect(redisService.srem).toHaveBeenCalledWith(
+        'contract-event-streamer:dlq',
+        'contract-event-streamer:dlq:tx-replay:1234',
+      );
+    });
+
+    it('returns false when replaying a non-existent DLQ entry', async () => {
+      redisService.get.mockResolvedValue(null);
+
+      const result = await service.replayDeadLetter('nonexistent:0');
+      expect(result).toBe(false);
     });
   });
 });

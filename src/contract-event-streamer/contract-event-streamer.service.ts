@@ -15,6 +15,9 @@ import type { ContractEventData } from '../queues/processors/contract-events.pro
 
 const CURSOR_KEY = 'contract-event-streamer:cursor';
 const LEDGER_KEY = 'contract-event-streamer:last-ledger';
+const DEAD_LETTER_PREFIX = 'contract-event-streamer:dlq:';
+const DEAD_LETTER_SET_KEY = 'contract-event-streamer:dlq';
+const DEAD_LETTER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** Event name → queue dispatch method mapping */
 const EVENT_NAME_MAP: Record<
@@ -107,6 +110,91 @@ export class ContractEventStreamerService
       contractIds: this.config.contractIds,
       pollingIntervalMs: this.config.pollingIntervalMs,
     };
+  }
+
+  // ── dead-letter queue ──────────────────────────────────────────
+
+  /** Persist a failed event to the dead-letter queue in Redis */
+  private async deadLetter(
+    eventData: ContractEventData,
+    error: unknown,
+  ) {
+    const key = `${DEAD_LETTER_PREFIX}${eventData.transactionHash}:${Date.now()}`;
+    const entry = {
+      ...eventData,
+      _dlq: {
+        failedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
+    await Promise.all([
+      this.redisService.set(key, JSON.stringify(entry), DEAD_LETTER_MAX_AGE_MS),
+      this.redisService.sadd(DEAD_LETTER_SET_KEY, key),
+    ]);
+    logger.error('contract-event-streamer.dead-lettered', {
+      txHash: eventData.transactionHash,
+      eventType: eventData.eventType,
+      error: entry._dlq.error,
+    });
+  }
+
+  /** Count of events currently in the dead-letter queue */
+  async getDeadLetterCount(): Promise<number> {
+    const keys = await this.redisService.smembers(DEAD_LETTER_SET_KEY);
+    return keys.length;
+  }
+
+  /** List all dead-lettered events (for admin inspection) */
+  async listDeadLetters(): Promise<Record<string, any>[]> {
+    const keys = await this.redisService.smembers(DEAD_LETTER_SET_KEY);
+    const entries: Record<string, any>[] = [];
+    for (const key of keys) {
+      const raw = await this.redisService.get(key);
+      if (raw) {
+        entries.push(JSON.parse(raw));
+      } else {
+        // Key expired or deleted – clean up the set
+        await this.redisService.srem(DEAD_LETTER_SET_KEY, key);
+      }
+    }
+    return entries;
+  }
+
+  /** Replay a single dead-lettered event by re-dispatching to the Bull queue */
+  async replayDeadLetter(txHashAndTs: string): Promise<boolean> {
+    const key = `${DEAD_LETTER_PREFIX}${txHashAndTs}`;
+    const raw = await this.redisService.get(key);
+    if (!raw) return false;
+
+    const entry = JSON.parse(raw) as ContractEventData;
+    try {
+      switch (entry.eventType) {
+        case 'donation':
+          await this.queueService.processDonationEvent(entry);
+          break;
+        case 'milestone_released':
+          await this.queueService.processMilestoneReleasedEvent(entry);
+          break;
+        default:
+          logger.warn('contract-event-streamer.replay-unknown-type', {
+            eventType: entry.eventType,
+          });
+          return false;
+      }
+      // Remove from DLQ on successful replay
+      await Promise.all([
+        this.redisService.del(key),
+        this.redisService.srem(DEAD_LETTER_SET_KEY, key),
+      ]);
+      logger.info('contract-event-streamer.replay-success', { txHash: entry.transactionHash });
+      return true;
+    } catch (err) {
+      logger.error('contract-event-streamer.replay-failed', {
+        txHash: entry.transactionHash,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
   }
 
   // ── core polling loop ─────────────────────────────────────────────
@@ -280,6 +368,13 @@ export class ContractEventStreamerService
         eventType,
         txHash: event.txHash,
         error: err instanceof Error ? err.message : String(err),
+      });
+      // Persist the failed event for manual inspection and replay
+      await this.deadLetter(eventData, err).catch((dlqErr) => {
+        logger.error('contract-event-streamer.dead-letter-failed', {
+          txHash: event.txHash,
+          error: dlqErr instanceof Error ? dlqErr.message : String(dlqErr),
+        });
       });
     }
   }
