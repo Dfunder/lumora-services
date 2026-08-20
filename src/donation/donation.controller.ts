@@ -50,18 +50,10 @@ export class DonationController {
       ttl: 60000,
     },
   })
-  @Post('donation')
+  @Post('donations')
   @HttpCode(HttpStatus.OK)
   async donate(@Body() createDonationDto: CreateDonationDto) {
-    try {
-      return await this.donationService.submitDonation(createDonationDto);
-    } catch (error) {
-      throw new ApiException(
-        ErrorCode.DONATION_001,
-        'Donation failed',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    return await this.donationService.submitDonation(createDonationDto);
   }
 
   @Public()
