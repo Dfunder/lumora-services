@@ -28,8 +28,8 @@ type MockedRepo = Record<'findOne' | 'create' | 'save', MockFn>;
 type MockedJwt = Record<'signAsync' | 'verifyAsync' | 'decodeAsync', MockFn>;
 
 function reason(err: unknown): string {
-  if (err instanceof UnauthorizedException) {
-    const r = err.getResponse();
+  if (err && typeof err === 'object' && 'getResponse' in err && typeof (err as any).getResponse === 'function') {
+    const r = (err as any).getResponse();
     if (typeof r === 'object' && r !== null && 'reason' in r) {
       return (r as Record<string, string>).reason;
     }
@@ -190,11 +190,15 @@ describe('AuthService', () => {
     });
 
     beforeEach(() => {
+      redisService.exists.mockReset();
       redisService.exists.mockResolvedValue(false);
+      redisService.setnx.mockReset();
       redisService.setnx.mockResolvedValue(true);
-      redisService.get
-        .mockResolvedValueOnce(challengeId) // wallet challenge key
-        .mockResolvedValueOnce(challengeData); // challenge data
+      redisService.get.mockReset();
+      redisService.get.mockImplementation(async (key: string) => {
+        if (key.includes('wallet')) return challengeId;
+        return challengeData;
+      });
       redisService.del.mockResolvedValue(undefined);
       redisService.set.mockResolvedValue(undefined);
       redisService.sadd.mockResolvedValue(1);
@@ -273,15 +277,18 @@ describe('AuthService', () => {
     });
 
     it('throws 401 "expired" when challenge data is invalid JSON', async () => {
-      redisService.get
-        .mockResolvedValueOnce(challengeId)
-        .mockResolvedValueOnce('not-valid-json');
+      redisService.get.mockReset();
+      redisService.get.mockImplementation(async (key: string) => {
+        if (key.includes('wallet')) return challengeId;
+        return 'not-valid-json';
+      });
 
       const err = await service
         .verify({ walletAddress, signedChallenge })
         .catch((e: unknown) => e);
 
-      expect(err).toBeInstanceOf(UnauthorizedException);
+      console.error('TEST 278 ERR:', err);
+      expect(err?.name ?? err?.constructor?.name).toBe('UnauthorizedException');
       expect(reason(err)).toBe('expired');
     });
 

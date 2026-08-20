@@ -10,6 +10,7 @@ import { QueueModule } from './queues/queue.module';
 import { BullBoardConfigModule } from './bull-board/bull-board.module';
 import { HealthModule } from './health/health.module';
 import { DonationModule } from './donation/donation.module';
+import { ContractModule } from './contract/contract.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignModule } from './campaign/campaign.module';
@@ -48,6 +49,7 @@ import { ContractEventStreamerModule } from './contract-event-streamer/contract-
     UsersModule,
     DonationModule,
     ContractEventStreamerModule,
+    ContractModule,
     ThrottlerModule.forRoot([
       {
         name: 'default',
