@@ -3,7 +3,12 @@ import { Logger } from '@nestjs/common';
 import type { Job } from 'bull';
 
 export interface ContractEventData {
-  eventType: 'donation' | 'campaign_created' | 'campaign_funded' | 'withdrawal';
+  eventType:
+    | 'donation'
+    | 'campaign_created'
+    | 'campaign_funded'
+    | 'withdrawal'
+    | 'milestone_released';
   transactionHash: string;
   blockNumber: number;
   contractAddress: string;
@@ -89,6 +94,28 @@ export class ContractEventsProcessor {
     } catch (error) {
       this.logger.error(
         `Failed to process withdrawal event ${job.data.transactionHash}`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  @Process('process-milestone-released')
+  async handleMilestoneReleased(job: Job<ContractEventData>) {
+    this.logger.log(
+      `Processing milestone released event ${job.id} - TX: ${job.data.transactionHash}`,
+    );
+
+    try {
+      // Future implementation: Release milestone funds, notify campaign creator & donors
+      this.logger.log(
+        `Milestone released event processed: ${job.data.transactionHash}`,
+      );
+
+      return { success: true, processed: true };
+    } catch (error) {
+      this.logger.error(
+        `Failed to process milestone released event ${job.data.transactionHash}`,
         error,
       );
       throw error;
