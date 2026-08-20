@@ -8,10 +8,13 @@ import { CampaignsService } from './campaign.service';
 import { Campaign } from './entities/campaign.entity';
 import { CampaignDraft } from './entities/campaign-draft.entity';
 
+import { ContractModule } from '../contract/contract.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([Campaign, CampaignDraft]),
     PrismaModule,
+    ContractModule,
     BullModule.registerQueue({ name: 'analytics' }),
   ],
   controllers: [CampaignsController, AdminCampaignsController],
