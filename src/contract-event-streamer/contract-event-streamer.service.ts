@@ -4,10 +4,9 @@ import {
   OnModuleDestroy,
   Inject,
 } from '@nestjs/common';
-import { ConfigType } from '@nestjs/config';
+import type { ConfigType } from '@nestjs/config';
 import { Server as SorobanRpcServer } from '@stellar/stellar-sdk/rpc';
 import type { Api } from '@stellar/stellar-sdk/rpc';
-import { xdr } from '@stellar/stellar-sdk';
 import { QueueService } from '../queues/queue.service';
 import { RedisService } from '../redis/redis.service';
 import sorobanConfig from '../config/soroban.config';
@@ -34,6 +33,7 @@ export class ContractEventStreamerService
   private timer: ReturnType<typeof setInterval> | null = null;
   private polling = false;
   private shutdownRequested = false;
+  private inFlightPoll: Promise<void> | null = null;
 
   constructor(
     @Inject(sorobanConfig.KEY)
@@ -74,7 +74,7 @@ export class ContractEventStreamerService
     });
 
     this.shutdownRequested = false;
-    this.poll(); // kick off first poll immediately (non-blocking)
+    await this.poll(); // kick off first poll immediately
     this.timer = setInterval(
       () => this.poll(),
       this.config.pollingIntervalMs,
@@ -87,9 +87,9 @@ export class ContractEventStreamerService
       clearInterval(this.timer);
       this.timer = null;
     }
-    // Wait for any in-flight poll to finish
-    while (this.polling) {
-      await new Promise((r) => setTimeout(r, 50));
+    // Wait for any in-flight poll to settle
+    if (this.inFlightPoll) {
+      await this.inFlightPoll.catch(() => {});
     }
     logger.info('contract-event-streamer.stopped', {
       msg: 'Contract event streamer stopped',
@@ -115,15 +115,20 @@ export class ContractEventStreamerService
     if (this.polling || this.shutdownRequested) return;
     this.polling = true;
 
-    try {
-      await this.pollOnce();
-    } catch (err) {
-      logger.error('contract-event-streamer.poll-error', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      this.polling = false;
-    }
+    const p = (async () => {
+      try {
+        await this.pollOnce();
+      } catch (err) {
+        logger.error('contract-event-streamer.poll-error', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        this.polling = false;
+      }
+    })();
+
+    this.inFlightPoll = p;
+    await p;
   }
 
   /**
@@ -136,7 +141,7 @@ export class ContractEventStreamerService
   async pollOnce() {
     const cursor = await this.redisService.get(CURSOR_KEY);
 
-    const request = this.buildRequest(cursor);
+    const request = await this.buildRequest(cursor);
     const response = await this.rpcServer.getEvents(request);
 
     if (response.events.length === 0) {
@@ -228,7 +233,10 @@ export class ContractEventStreamerService
       return;
     }
 
-    const contractAddress = event.contractId?.address() ?? '';
+    const contractAddress =
+      typeof event.contractId?.address === 'function'
+        ? String(event.contractId.address())
+        : '';
 
     const eventData: ContractEventData = {
       eventType,

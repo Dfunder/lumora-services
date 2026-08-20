@@ -5,6 +5,17 @@ import sorobanConfig from '../config/soroban.config';
 import { QueueService } from '../queues/queue.service';
 import { RedisService } from '../redis/redis.service';
 
+// ── mock external modules that may not be installed in CI ──────────
+
+jest.mock('../common/logger/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
+
 // ── mock the Soroban RPC Server ───────────────────────────────────
 
 const mockGetEvents = jest.fn();
@@ -17,10 +28,17 @@ jest.mock('@stellar/stellar-sdk/rpc', () => ({
   })),
 }));
 
+jest.mock('@stellar/stellar-sdk', () => ({
+  xdr: {
+    ScVal: {
+      scvSymbol: jest.fn(),
+    },
+  },
+}));
+
 // ── helpers ───────────────────────────────────────────────────────
 
 function makeScvSymbol(name: string) {
-  // Minimal mock that satisfies resolveEventType's switch().name check
   const buf = Buffer.from(name);
   return {
     switch: () => ({ name: 'scvSymbol' as const }),
@@ -57,7 +75,11 @@ function makeEvent(overrides: {
   };
 }
 
-function makeGetEventsResponse(events: any[] = [], cursor = 'cursor-42', latestLedger = 1100) {
+function makeGetEventsResponse(
+  events: any[] = [],
+  cursor = 'cursor-42',
+  latestLedger = 1100,
+) {
   return {
     events,
     cursor,
@@ -66,6 +88,15 @@ function makeGetEventsResponse(events: any[] = [], cursor = 'cursor-42', latestL
     latestLedgerCloseTime: '2026-08-20T00:01:00Z',
     oldestLedgerCloseTime: '2026-08-19T00:00:00Z',
   } as any;
+}
+
+/**
+ * Flush all pending microtasks and macrotasks.
+ * With fake timers, setImmediate doesn't fire, so we advance timers by 0
+ * which triggers jest's internal microtask flushing.
+ */
+async function flushPromises() {
+  await jest.advanceTimersByTimeAsync(0);
 }
 
 // ── test suite ────────────────────────────────────────────────────
@@ -92,7 +123,9 @@ describe('ContractEventStreamerService', () => {
     redisService = { get: jest.fn(), set: jest.fn() };
     queueService = {
       processDonationEvent: jest.fn().mockResolvedValue({ id: 'job-1' }),
-      processMilestoneReleasedEvent: jest.fn().mockResolvedValue({ id: 'job-2' }),
+      processMilestoneReleasedEvent: jest
+        .fn()
+        .mockResolvedValue({ id: 'job-2' }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -131,18 +164,16 @@ describe('ContractEventStreamerService', () => {
       const svc = module.get(ContractEventStreamerService);
       await svc.onModuleInit();
 
-      // Should not have called getEvents at all
       expect(mockGetEvents).not.toHaveBeenCalled();
     });
 
     it('kicks off an immediate poll when contractIds are present', async () => {
-      redisService.get.mockResolvedValue(null); // no cursor
+      redisService.get.mockResolvedValue(null);
       mockGetLatestLedger.mockResolvedValue({ sequence: 1050 });
       mockGetEvents.mockResolvedValue(makeGetEventsResponse([]));
 
       await service.startStreaming();
 
-      // First poll should have happened immediately
       expect(mockGetEvents).toHaveBeenCalledTimes(1);
       expect(mockGetLatestLedger).toHaveBeenCalledTimes(1);
     });
@@ -153,25 +184,26 @@ describe('ContractEventStreamerService', () => {
   describe('cursor-based restart', () => {
     it('resumes from persisted cursor when one exists in Redis', async () => {
       redisService.get.mockImplementation(async (key: string) => {
-        if (key === 'contract-event-streamer:cursor') return 'saved-cursor-abc';
+        if (key === 'contract-event-streamer:cursor')
+          return 'saved-cursor-abc';
         if (key === 'contract-event-streamer:last-ledger') return '999';
         return null;
       });
-      mockGetEvents.mockResolvedValue(makeGetEventsResponse([], 'next-cursor'));
+      mockGetEvents.mockResolvedValue(
+        makeGetEventsResponse([], 'next-cursor'),
+      );
 
       await service.startStreaming();
-      // Allow the immediate async poll to complete
       await flushPromises();
 
       expect(mockGetEvents).toHaveBeenCalledWith(
         expect.objectContaining({ cursor: 'saved-cursor-abc' }),
       );
-      // Should NOT call getLatestLedger since we have a cursor
       expect(mockGetLatestLedger).not.toHaveBeenCalled();
     });
 
     it('starts from latest ledger minus offset when no cursor exists', async () => {
-      redisService.get.mockResolvedValue(null); // no cursor
+      redisService.get.mockResolvedValue(null);
       mockGetLatestLedger.mockResolvedValue({ sequence: 1050 });
       mockGetEvents.mockResolvedValue(makeGetEventsResponse([]));
 
@@ -184,7 +216,7 @@ describe('ContractEventStreamerService', () => {
       );
     });
 
-    it('persists cursor and ledger after each poll', async () => {
+    it('persists cursor and ledger after each poll with events', async () => {
       redisService.get.mockResolvedValue(null);
       mockGetLatestLedger.mockResolvedValue({ sequence: 1050 });
       mockGetEvents.mockResolvedValue(
@@ -206,7 +238,9 @@ describe('ContractEventStreamerService', () => {
 
     it('updates last-ledger even when no events returned', async () => {
       redisService.get.mockResolvedValue('existing-cursor');
-      mockGetEvents.mockResolvedValue(makeGetEventsResponse([], 'same-cursor', 1200));
+      mockGetEvents.mockResolvedValue(
+        makeGetEventsResponse([], 'same-cursor', 1200),
+      );
 
       await service.startStreaming();
       await flushPromises();
@@ -215,7 +249,6 @@ describe('ContractEventStreamerService', () => {
         'contract-event-streamer:last-ledger',
         '1200',
       );
-      // Cursor should not be overwritten since no new events
       expect(redisService.set).not.toHaveBeenCalledWith(
         'contract-event-streamer:cursor',
         expect.anything(),
@@ -262,8 +295,12 @@ describe('ContractEventStreamerService', () => {
       await service.startStreaming();
       await flushPromises();
 
-      expect(queueService.processMilestoneReleasedEvent).toHaveBeenCalledTimes(1);
-      expect(queueService.processMilestoneReleasedEvent).toHaveBeenCalledWith(
+      expect(
+        queueService.processMilestoneReleasedEvent,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        queueService.processMilestoneReleasedEvent,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'milestone_released',
           transactionHash: 'tx-milestone-001',
@@ -283,7 +320,9 @@ describe('ContractEventStreamerService', () => {
       await flushPromises();
 
       expect(queueService.processDonationEvent).not.toHaveBeenCalled();
-      expect(queueService.processMilestoneReleasedEvent).not.toHaveBeenCalled();
+      expect(
+        queueService.processMilestoneReleasedEvent,
+      ).not.toHaveBeenCalled();
     });
 
     it('handles multiple events in a single batch', async () => {
@@ -306,7 +345,9 @@ describe('ContractEventStreamerService', () => {
       await flushPromises();
 
       expect(queueService.processDonationEvent).toHaveBeenCalledTimes(1);
-      expect(queueService.processMilestoneReleasedEvent).toHaveBeenCalledTimes(1);
+      expect(
+        queueService.processMilestoneReleasedEvent,
+      ).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -315,12 +356,22 @@ describe('ContractEventStreamerService', () => {
   describe('restart-safe cursor (acceptance test)', () => {
     it('simulates a mid-stream restart and confirms no events are lost', async () => {
       // ── First session: process some events ──
-      redisService.get.mockResolvedValue(null); // fresh start
+      redisService.get.mockResolvedValue(null);
       mockGetLatestLedger.mockResolvedValue({ sequence: 2000 });
 
       const batch1 = [
-        makeEvent({ id: 'evt-1', txHash: 'tx-1', ledger: 1901, topic: [makeScvSymbol('DonationReceived')] }),
-        makeEvent({ id: 'evt-2', txHash: 'tx-2', ledger: 1902, topic: [makeScvSymbol('MilestoneReleased')] }),
+        makeEvent({
+          id: 'evt-1',
+          txHash: 'tx-1',
+          ledger: 1901,
+          topic: [makeScvSymbol('DonationReceived')],
+        }),
+        makeEvent({
+          id: 'evt-2',
+          txHash: 'tx-2',
+          ledger: 1902,
+          topic: [makeScvSymbol('MilestoneReleased')],
+        }),
       ];
       mockGetEvents.mockResolvedValue(
         makeGetEventsResponse(batch1, 'cursor-after-batch1', 1950),
@@ -330,7 +381,9 @@ describe('ContractEventStreamerService', () => {
       await flushPromises();
 
       expect(queueService.processDonationEvent).toHaveBeenCalledTimes(1);
-      expect(queueService.processMilestoneReleasedEvent).toHaveBeenCalledTimes(1);
+      expect(
+        queueService.processMilestoneReleasedEvent,
+      ).toHaveBeenCalledTimes(1);
 
       // Verify cursor was persisted
       expect(redisService.set).toHaveBeenCalledWith(
@@ -340,8 +393,6 @@ describe('ContractEventStreamerService', () => {
 
       // ── Simulate restart: stop the streamer ──
       await service.stopStreaming();
-
-      // Reset mocks for the second session
       jest.clearAllMocks();
 
       // ── Second session: should resume from persisted cursor ──
@@ -358,14 +409,20 @@ describe('ContractEventStreamerService', () => {
 
       // Redis still has the saved cursor
       redisService.get.mockImplementation(async (key: string) => {
-        if (key === 'contract-event-streamer:cursor') return 'cursor-after-batch1';
+        if (key === 'contract-event-streamer:cursor')
+          return 'cursor-after-batch1';
         if (key === 'contract-event-streamer:last-ledger') return '1950';
         return null;
       });
 
       // New events since last cursor
       const batch2 = [
-        makeEvent({ id: 'evt-3', txHash: 'tx-3', ledger: 1951, topic: [makeScvSymbol('DonationReceived')] }),
+        makeEvent({
+          id: 'evt-3',
+          txHash: 'tx-3',
+          ledger: 1951,
+          topic: [makeScvSymbol('DonationReceived')],
+        }),
       ];
       mockGetEvents.mockResolvedValue(
         makeGetEventsResponse(batch2, 'cursor-after-batch2', 2000),
@@ -374,7 +431,7 @@ describe('ContractEventStreamerService', () => {
       await newService.startStreaming();
       await flushPromises();
 
-      // Should have resumed from the persisted cursor, not from scratch
+      // Should have resumed from the persisted cursor
       expect(mockGetEvents).toHaveBeenCalledWith(
         expect.objectContaining({ cursor: 'cursor-after-batch1' }),
       );
@@ -401,11 +458,9 @@ describe('ContractEventStreamerService', () => {
       redisService.get.mockResolvedValue(null);
       mockGetLatestLedger.mockRejectedValue(new Error('network timeout'));
 
-      // startStreaming should not throw
       await expect(service.startStreaming()).resolves.not.toThrow();
       await flushPromises();
 
-      // Service should still be running
       const status = await service.getStatus();
       expect(status.running).toBe(true);
     });
@@ -417,14 +472,15 @@ describe('ContractEventStreamerService', () => {
       await service.startStreaming();
       await flushPromises();
 
-      // Service should still be running after the error
       const status = await service.getStatus();
       expect(status.running).toBe(true);
     });
 
     it('does not crash when queue dispatch fails', async () => {
       redisService.get.mockResolvedValue('cursor-y');
-      queueService.processDonationEvent.mockRejectedValue(new Error('queue full'));
+      queueService.processDonationEvent.mockRejectedValue(
+        new Error('queue full'),
+      );
       mockGetEvents.mockResolvedValue(
         makeGetEventsResponse([
           makeEvent({ topic: [makeScvSymbol('DonationReceived')] }),
@@ -434,7 +490,6 @@ describe('ContractEventStreamerService', () => {
       await service.startStreaming();
       await flushPromises();
 
-      // Service should still be running; cursor should still be persisted
       expect(redisService.set).toHaveBeenCalledWith(
         'contract-event-streamer:cursor',
         expect.any(String),
@@ -451,14 +506,11 @@ describe('ContractEventStreamerService', () => {
 
       await service.startStreaming();
 
-      // Initial poll
       expect(mockGetEvents).toHaveBeenCalledTimes(1);
 
-      // Advance by one interval
       await jest.advanceTimersByTimeAsync(5000);
       expect(mockGetEvents).toHaveBeenCalledTimes(2);
 
-      // Advance by another interval
       await jest.advanceTimersByTimeAsync(5000);
       expect(mockGetEvents).toHaveBeenCalledTimes(3);
     });
@@ -473,7 +525,6 @@ describe('ContractEventStreamerService', () => {
       await service.stopStreaming();
 
       await jest.advanceTimersByTimeAsync(15000);
-      // Should still be 1 call — no more polls after stop
       expect(mockGetEvents).toHaveBeenCalledTimes(1);
     });
   });
@@ -511,9 +562,3 @@ describe('ContractEventStreamerService', () => {
     });
   });
 });
-
-// ── utility ───────────────────────────────────────────────────────
-
-function flushPromises() {
-  return new Promise<void>((resolve) => setImmediate(resolve));
-}
