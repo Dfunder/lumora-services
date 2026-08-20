@@ -1,15 +1,128 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDonationDto } from './dto/create-donation.dto';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
+import { Server, Transaction } from '@stellar/stellar-sdk';
+import { ConfigService } from '@nestjs/config';
+import { ApiException } from '../common/errors/api-exception';
+import { ErrorCode } from '../common/errors/error-codes';
 
 @Injectable()
 export class DonationService {
+  private readonly horizonServer: Server;
+  private readonly logger = new Logger(DonationService.name);
+  private readonly acceptedAssets: Array<{ code: string; issuer: string }>;
+
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue('analytics') private readonly analyticsQueue: Queue,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const horizonUrl = this.configService.get<string>('HORIZON_URL') ?? 'https://horizon-testnet.stellar.org';
+    this.horizonServer = new Server(horizonUrl);
+    // Configure accepted assets from environment or use defaults (XLM and testnet USDC)
+    const acceptedAssetsEnv = this.configService.get<string>('ACCEPTED_ASSETS');
+    if (acceptedAssetsEnv) {
+      this.acceptedAssets = JSON.parse(acceptedAssetsEnv);
+    } else {
+      this.acceptedAssets = [
+        // Native XLM (no issuer needed)
+        { code: 'XLM', issuer: '' },
+        // Testnet USDC issuer
+        { code: 'USDC', issuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4AQQZGX4IHWNOCT3' },
+      ];
+    }
+  }
+
+  // Exponential backoff utility
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Fetch transaction with retries
+  private async fetchTransactionWithRetries(txHash: string, maxRetries = 3): Promise<any> {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      try {
+        const transaction = await this.horizonServer.transactions().transaction(txHash).call();
+        return transaction;
+      } catch (error: any) {
+        attempt++;
+        this.logger.warn(`Transaction fetch attempt ${attempt} failed for txHash ${txHash}: ${error.message}`);
+        
+        if (attempt >= maxRetries) {
+          throw new ApiException(
+            ErrorCode.DONATION_002,
+            `Failed to verify transaction after ${maxRetries} attempts`,
+            400,
+          );
+        }
+
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        await this.delay(backoffMs);
+      }
+    }
+    throw new Error('Unexpected error in transaction fetch');
+  }
+
+  // Verify transaction details
+  private verifyTransaction(transaction: any, campaignContractAddress: string): { amount: string; assetCode: string; assetIssuer: string } {
+    // Check if transaction is confirmed
+    if (transaction.successful !== true) {
+      throw new ApiException(
+        ErrorCode.DONATION_003,
+        'Transaction was not successful on-chain',
+        400,
+      );
+    }
+
+    // Get operations from the transaction
+    const operations = transaction.operation_records || [];
+    if (operations.length === 0) {
+      throw new ApiException(
+        ErrorCode.DONATION_004,
+        'No operations found in transaction',
+        400,
+      );
+    }
+
+    // Find the payment operation to the campaign contract
+    const paymentOp = operations.find(op => 
+      op.type === 'payment' && 
+      op.to === campaignContractAddress
+    );
+
+    if (!paymentOp) {
+      throw new ApiException(
+        ErrorCode.DONATION_005,
+        'No valid payment operation to campaign contract found in transaction',
+        400,
+      );
+    }
+
+    // Verify asset is accepted
+    const assetCode = paymentOp.asset_code || 'XLM';
+    const assetIssuer = paymentOp.asset_issuer || '';
+    const isAccepted = this.acceptedAssets.some(asset => 
+      asset.code === assetCode && (asset.code === 'XLM' || asset.issuer === assetIssuer)
+    );
+
+    if (!isAccepted) {
+      throw new ApiException(
+        ErrorCode.DONATION_006,
+        `Asset ${assetCode}:${assetIssuer} is not accepted for donations`,
+        400,
+      );
+    }
+
+    return {
+      amount: paymentOp.amount,
+      assetCode,
+      assetIssuer,
+    };
+  }
 
   async submitDonation(dto: CreateDonationDto) {
     const hasTip = dto.tipAmount !== undefined || dto.tipAsset !== undefined;
