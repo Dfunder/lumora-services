@@ -18,6 +18,12 @@ export enum ErrorCode {
   // Validation Errors
   VALIDATION_001 = 'Validation failed',
 
+  // Contract Errors
+  CONTRACT_001 = 'Contract invocation failed',
+  CONTRACT_002 = 'Contract not found',
+  CONTRACT_003 = 'Contract panic error',
+  CONTRACT_004 = 'Contract deployment failed',
+
   // General Errors
   UNKNOWN_ERROR = 'An unknown error occurred',
 }
