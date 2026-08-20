@@ -136,20 +136,109 @@ export class DonationService {
       throw new BadRequestException('tipAmount must be greater than zero.');
     }
 
-    if (dto.tipAmount && dto.tipAsset) {
-      await this.prisma.platformTip.create({
+    // First, check if donation with this txHash already exists (idempotency check)
+    const existingDonation = await this.prisma.donation.findUnique({
+      where: { transactionHash: dto.txHash },
+    });
+
+    if (existingDonation) {
+      this.logger.log(`Donation with txHash ${dto.txHash} already exists, returning existing record`);
+      return { success: true, existing: true, donationId: existingDonation.id };
+    }
+
+    // Find the campaign and its associated contract
+    const campaign = await this.prisma.campaign.findUnique({
+      where: { id: dto.campaignId },
+      include: { contracts: true },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException(`Campaign with ID ${dto.campaignId} not found`);
+    }
+
+    if (campaign.status !== 'ACTIVE') {
+      throw new BadRequestException('Campaign is not active and cannot accept donations');
+    }
+
+    if (!campaign.contracts || campaign.contracts.length === 0) {
+      throw new BadRequestException('Campaign has no associated contract to receive donations');
+    }
+
+    // Get the campaign's contract address (assuming first contract is the primary one)
+    const campaignContract = campaign.contracts[0];
+    const campaignContractAddress = campaignContract.contractId;
+
+    // Fetch and verify the transaction with retries
+    const onChainTransaction = await this.fetchTransactionWithRetries(dto.txHash);
+    const verifiedDetails = this.verifyTransaction(onChainTransaction, campaignContractAddress);
+
+    // Get or create the donor user
+    let donor = await this.prisma.user.findUnique({
+      where: { walletAddress: dto.walletAddress },
+    });
+
+    if (!donor) {
+      this.logger.log(`Creating new user for wallet ${dto.walletAddress}`);
+      donor = await this.prisma.user.create({
         data: {
-          senderId: dto.walletAddress,
-          recipientId: dto.campaignId ?? 'platform',
-          amount: dto.tipAmount,
-          currency: dto.tipAsset,
-          transactionHash: dto.transactionHash,
-          message: dto.message,
+          walletAddress: dto.walletAddress,
+          displayName: `Donor_${dto.walletAddress.slice(0, 8)}`,
         },
       });
     }
 
-    return { success: true };
+    // Use a transaction to atomically create donation and update campaign raised amount
+    const result = await this.prisma.$transaction(async (prisma) => {
+      // Create the donation with ONLY verified on-chain data
+      const donation = await prisma.donation.create({
+        data: {
+          campaignId: dto.campaignId,
+          donorId: donor.id,
+          amount: verifiedDetails.amount,
+          currency: verifiedDetails.assetCode,
+          transactionHash: dto.txHash,
+          message: dto.message,
+          isAnonymous: dto.isAnonymous ?? false,
+          status: 'COMPLETED',
+        },
+      });
+
+      // Update campaign's raised amount
+      await prisma.campaign.update({
+        where: { id: dto.campaignId },
+        data: {
+          raisedAmount: { increment: parseFloat(verifiedDetails.amount) },
+        },
+      });
+
+      // Create platform tip if provided
+      if (dto.tipAmount && dto.tipAsset) {
+        await prisma.platformTip.create({
+          data: {
+            senderId: dto.walletAddress,
+            recipientId: dto.campaignId,
+            amount: dto.tipAmount,
+            currency: dto.tipAsset,
+            transactionHash: `${dto.txHash}_tip`,
+            message: dto.message,
+          },
+        });
+      }
+
+      return donation;
+    });
+
+    this.logger.log(`Donation ${result.id} created successfully with verified on-chain amount ${verifiedDetails.amount} ${verifiedDetails.assetCode}`);
+    
+    // Add to analytics queue
+    await this.analyticsQueue.add('donation-completed', {
+      donationId: result.id,
+      campaignId: dto.campaignId,
+      amount: verifiedDetails.amount,
+      asset: verifiedDetails.assetCode,
+    });
+
+    return { success: true, donationId: result.id, verifiedAmount: verifiedDetails.amount, verifiedAsset: verifiedDetails.assetCode };
   }
 
   async getCampaignDonations(
