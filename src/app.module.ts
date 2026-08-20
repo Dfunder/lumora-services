@@ -21,12 +21,14 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { Campaign } from './campaign/entities/campaign.entity';
 import redisConfig from './config/redis.config';
 import bullConfig from './config/bull.config';
+import sorobanConfig from './config/soroban.config';
+import { ContractEventStreamerModule } from './contract-event-streamer/contract-event-streamer.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [redisConfig, bullConfig],
+      load: [redisConfig, bullConfig, sorobanConfig],
     }),
     TypeOrmModule.forRootAsync({
       useFactory: (config: ConfigService) => ({
@@ -45,6 +47,7 @@ import bullConfig from './config/bull.config';
     CampaignModule,
     UsersModule,
     DonationModule,
+    ContractEventStreamerModule,
     ThrottlerModule.forRoot([
       {
         name: 'default',

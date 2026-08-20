@@ -80,6 +80,15 @@ export class QueueService {
     });
   }
 
+  async processMilestoneReleasedEvent(data: ContractEventData) {
+    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
+    logger.info('queue.enqueue', { queue: 'contract-events-queue', job: 'process-milestone-released', correlationId: correlation.get().correlationId });
+    return await this.contractEventsQueue.add('process-milestone-released', enriched, {
+      ...this.config.defaultJobOptions,
+      priority: 9, // High priority for milestone releases
+    });
+  }
+
   // Analytics queue methods
   async trackPageView(data: AnalyticsEventData) {
     const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
