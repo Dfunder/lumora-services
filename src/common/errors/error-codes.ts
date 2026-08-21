@@ -11,6 +11,11 @@ export enum ErrorCode {
 
   // Donation Errors
   DONATION_001 = 'Donation failed',
+  DONATION_002 = 'Failed to verify transaction after multiple attempts',
+  DONATION_003 = 'Transaction was not successful on-chain',
+  DONATION_004 = 'No operations found in transaction',
+  DONATION_005 = 'No valid payment operation to campaign contract found in transaction',
+  DONATION_006 = 'Asset is not accepted for donations',
 
   // User Errors
   USER_001 = 'User not found',
