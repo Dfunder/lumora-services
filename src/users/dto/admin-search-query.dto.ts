@@ -1,9 +1,13 @@
-import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
+import { SanitizeString, IsSafeString } from '../../common/validators/common.validators';
 
 export class AdminSearchQueryDto {
   @IsString()
   @IsOptional()
+  @IsSafeString()
+  @SanitizeString()
+  @MaxLength(100)
   q?: string;
 
   @Type(() => Number)
