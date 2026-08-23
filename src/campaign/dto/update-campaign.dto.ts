@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsUrl, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsUrl, MaxLength, MinLength } from 'class-validator';
+import { IsValidUrl, SanitizeString, IsSafeString } from '../../common/validators/common.validators';
 
 export class UpdateCampaignDto {
   @ApiProperty({
@@ -9,6 +10,9 @@ export class UpdateCampaignDto {
   })
   @IsOptional()
   @IsString()
+  @IsSafeString()
+  @SanitizeString()
+  @MinLength(5)
   @MaxLength(100)
   title?: string;
 
@@ -19,6 +23,9 @@ export class UpdateCampaignDto {
   })
   @IsOptional()
   @IsString()
+  @IsSafeString()
+  @SanitizeString()
+  @MinLength(10)
   @MaxLength(255)
   description?: string;
 
@@ -28,6 +35,10 @@ export class UpdateCampaignDto {
   })
   @IsOptional()
   @IsString()
+  @IsSafeString()
+  @SanitizeString()
+  @MinLength(50)
+  @MaxLength(10000)
   story?: string;
 
   @ApiProperty({
@@ -35,6 +46,8 @@ export class UpdateCampaignDto {
     required: false,
   })
   @IsOptional()
-  @IsUrl()
+  @IsString()
+  @IsValidUrl()
+  @MaxLength(2048)
   coverImageUrl?: string;
 }
