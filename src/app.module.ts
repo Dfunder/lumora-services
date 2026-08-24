@@ -24,12 +24,14 @@ import redisConfig from './config/redis.config';
 import bullConfig from './config/bull.config';
 import sorobanConfig from './config/soroban.config';
 import { ContractEventStreamerModule } from './contract-event-streamer/contract-event-streamer.module';
+import { validateEnv } from './common/validators/env.validator';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       load: [redisConfig, bullConfig, sorobanConfig],
+      validate: validateEnv,
     }),
     TypeOrmModule.forRootAsync({
       useFactory: (config: ConfigService) => ({

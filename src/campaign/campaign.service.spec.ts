@@ -22,6 +22,7 @@ describe('CampaignsService', () => {
     create: jest.fn().mockImplementation((dto) => dto),
     save: jest.fn().mockImplementation((dto) => Promise.resolve({ id: 'campaign-1', ...dto })),
     findOne: jest.fn(),
+    findAndCount: jest.fn(),
   };
 
   const mockDraftRepo = {
@@ -197,6 +198,38 @@ describe('CampaignsService', () => {
       mockCampaignRepo.findOne.mockResolvedValue({ id: 'campaign-1', creatorId: 'user-123' });
 
       await expect(service.getDonationAnalytics('campaign-1', 'user-999', 'USER')).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Query Performance Tests', () => {
+    it('getCampaignById should execute within 100ms', async () => {
+      mockCampaignRepo.findOne.mockResolvedValue({
+        id: 'campaign-1',
+        title: 'Test Campaign',
+        creator: { id: 'user-1', walletAddress: 'test' },
+      });
+      prismaService.donation.aggregate.mockResolvedValue({
+        _count: { donorId: 5 },
+      });
+
+      const startTime = Date.now();
+      await service.getCampaignById('campaign-1');
+      const executionTime = Date.now() - startTime;
+
+      expect(executionTime).toBeLessThan(100);
+    });
+
+    it('getFeaturedCampaigns should execute within 100ms', async () => {
+      mockCampaignRepo.findAndCount.mockResolvedValue([
+        [{ id: 'campaign-1', title: 'Featured 1' }],
+        1,
+      ]);
+
+      const startTime = Date.now();
+      await service.getFeaturedCampaigns(1, 10);
+      const executionTime = Date.now() - startTime;
+
+      expect(executionTime).toBeLessThan(100);
     });
   });
 });

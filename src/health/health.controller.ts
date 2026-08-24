@@ -6,6 +6,8 @@ import { QueueService } from '../queues/queue.service';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ContractEventStreamerService } from '../contract-event-streamer/contract-event-streamer.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { logger } from '../common/logger/logger';
 
 @ApiTags('health')
 @Controller('health')
@@ -18,6 +20,7 @@ export class HealthController {
     private readonly queueService: QueueService,
     private readonly configService: ConfigService,
     private readonly streamerService: ContractEventStreamerService,
+    private readonly prismaService: PrismaService,
   ) {
     const horizonUrl = this.configService.get<string>('HORIZON_URL') || 'https://horizon.stellar.org';
     this.horizonServer = new Server(horizonUrl);
@@ -130,6 +133,7 @@ export class HealthController {
         },
       };
     } catch (error) {
+      logger.error('health.postgres.failed', { error: error.message });
       return {
         status: 'down',
         info: {
@@ -197,5 +201,29 @@ export class HealthController {
         deadLetterCount,
       },
     };
+  }
+
+  @ApiOperation({ summary: 'Check Prisma database connectivity' })
+  @ApiResponse({ status: 200, description: 'Prisma status returned' })
+  @Get('prisma')
+  async checkPrisma() {
+    try {
+      await this.prismaService.$queryRaw`SELECT 1`;
+      return {
+        status: 'up',
+        info: {
+          connected: true,
+          uptime: Date.now(),
+        },
+      };
+    } catch (error) {
+      logger.error('health.prisma.failed', { error: error.message });
+      return {
+        status: 'down',
+        info: {
+          error: error.message,
+        },
+      };
+    }
   }
 }

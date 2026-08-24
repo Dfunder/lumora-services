@@ -14,6 +14,7 @@ import { AUTH_CONSTANTS } from './constants/auth.constant';
 import { JwtPayload } from './guards/jwt-auth.guard';
 import { logger } from '../common/logger/logger';
 import correlation from '../common/correlation/correlation.service';
+import { QueryPerformance } from '../common/decorators/query-performance.decorator';
 
 interface ChallengeData {
   challengeId: string;
@@ -229,6 +230,7 @@ export class AuthService {
 
     const user = await this.userRepository.findOne({
       where: { id: payload.sub },
+      select: ['id', 'walletAddress', 'role', 'lastSessionAt', 'createdAt', 'updatedAt'],
     });
     if (!user) {
       throw new UnauthorizedException();
@@ -424,6 +426,7 @@ export class AuthService {
 
   // --- User Management -------------------------------------------------------
 
+  @QueryPerformance({ logThreshold: 50 })
   async findOrCreateUser(walletAddress: string): Promise<User> {
     const ctx = correlation.get();
     logger.info('auth.findOrCreateUser.start', { walletAddress, correlationId: ctx.correlationId });
@@ -435,8 +438,10 @@ export class AuthService {
     const isAdmin = adminWallets.includes(walletAddress.toLowerCase());
     const role = isAdmin ? 'ADMIN' : 'USER';
 
+    // Optimized: Single query with select to reduce data transfer
     const existing = await this.userRepository.findOne({
       where: { walletAddress },
+      select: ['id', 'walletAddress', 'role', 'createdAt', 'updatedAt'],
     });
 
     if (existing) {
@@ -455,6 +460,7 @@ export class AuthService {
       if (pgErr.code === '23505') {
         const found = await this.userRepository.findOne({
           where: { walletAddress },
+          select: ['id', 'walletAddress', 'role', 'createdAt', 'updatedAt'],
         });
         if (found) {
           if (found.role !== role) {
