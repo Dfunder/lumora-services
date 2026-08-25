@@ -179,10 +179,9 @@ export class AuthService {
       details: { challengeId },
     });
 
-    return tokens;
     logger.info('auth.verify.success', { walletAddress, userId: user.id, correlationId: ctx.correlationId });
 
-    return this.issueTokens(user);
+    return tokens;
   }
 
   // --- Refresh Token Rotation -------------------------------------------------

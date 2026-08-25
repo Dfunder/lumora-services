@@ -20,10 +20,13 @@ import { SuspensionGuard } from './auth/guards/suspension.guard';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { Campaign } from './campaign/entities/campaign.entity';
+import { CampaignDraft } from './campaign/entities/campaign-draft.entity';
 import redisConfig from './config/redis.config';
 import bullConfig from './config/bull.config';
 import sorobanConfig from './config/soroban.config';
 import { ContractEventStreamerModule } from './contract-event-streamer/contract-event-streamer.module';
+
+const isDev = process.env.NODE_ENV !== 'production';
 
 @Module({
   imports: [
@@ -42,7 +45,10 @@ import { ContractEventStreamerModule } from './contract-event-streamer/contract-
     }),
     RedisModule,
     QueueModule,
-    (process.env.NODE_ENV !== 'production' ? [BullBoardConfigModule] : []),
+    // BullBoardConfigModule must always be imported — its /admin/queues route
+    // should be protected at the network/gateway level in production rather
+    // than conditionally excluded here, which causes NestJS bootstrap errors.
+    BullBoardConfigModule,
     HealthModule,
     AuthModule,
     CampaignModule,
