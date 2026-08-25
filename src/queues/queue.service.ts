@@ -1,16 +1,20 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
-import type { Queue } from 'bull';
+import type { Job, Queue } from 'bull';
 import type { ConfigType } from '@nestjs/config';
 import bullConfig from '../config/bull.config';
 import correlation from '../common/correlation/correlation.service';
 import { logger } from '../common/logger/logger';
+import { DlqService } from './dlq.service';
+import { QueueMetricsService } from './metrics.service';
 import type { EmailJobData } from './processors/email.processor';
 import type { ContractEventData } from './processors/contract-events.processor';
 import type { AnalyticsEventData } from './processors/analytics.processor';
 
 @Injectable()
 export class QueueService {
+  private readonly nestLogger = new Logger(QueueService.name);
+
   constructor(
     @InjectQueue('email-queue')
     private readonly emailQueue: Queue<EmailJobData>,
@@ -20,166 +24,214 @@ export class QueueService {
     private readonly analyticsQueue: Queue<AnalyticsEventData>,
     @Inject(bullConfig.KEY)
     private readonly config: ConfigType<typeof bullConfig>,
+    private readonly dlqService: DlqService,
+    private readonly metrics: QueueMetricsService,
   ) {}
 
-  // Email queue methods
-  async sendNotificationEmail(data: EmailJobData, delay?: number) {
-    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
-    logger.info('queue.enqueue', { queue: 'email-queue', job: 'send-notification', correlationId: correlation.get().correlationId });
-    return await this.emailQueue.add('send-notification', enriched, {
+  // ─── Email queue ─────────────────────────────────────────────────────────────
+
+  async sendNotificationEmail(data: EmailJobData, delay?: number): Promise<Job<EmailJobData>> {
+    const enriched = this.enrich(data);
+    logger.info('queue.enqueue', {
+      queue: 'email-queue',
+      job: 'send-notification',
+      correlationId: enriched._meta?.correlationId,
+    });
+    return this.emailQueue.add('send-notification', enriched, {
       delay,
-      ...this.config.defaultJobOptions,
+      ...this.emailJobOptions(),
     });
   }
 
-  async sendWelcomeEmail(data: EmailJobData, delay?: number) {
-    return await this.emailQueue.add('send-welcome', data, {
+  async sendWelcomeEmail(data: EmailJobData, delay?: number): Promise<Job<EmailJobData>> {
+    const enriched = this.enrich(data);
+    return this.emailQueue.add('send-welcome', enriched, {
       delay,
-      ...this.config.defaultJobOptions,
+      ...this.emailJobOptions(),
     });
   }
 
-  async sendCampaignUpdateEmail(data: EmailJobData, delay?: number) {
-    return await this.emailQueue.add('send-campaign-update', data, {
+  async sendCampaignUpdateEmail(data: EmailJobData, delay?: number): Promise<Job<EmailJobData>> {
+    const enriched = this.enrich(data);
+    return this.emailQueue.add('send-campaign-update', enriched, {
       delay,
-      ...this.config.defaultJobOptions,
+      ...this.emailJobOptions(),
     });
   }
 
-  // Contract events queue methods
-  async processDonationEvent(data: ContractEventData) {
-    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
-    logger.info('queue.enqueue', { queue: 'contract-events-queue', job: 'process-donation', correlationId: correlation.get().correlationId });
-    return await this.contractEventsQueue.add('process-donation', enriched, {
-      ...this.config.defaultJobOptions,
-      priority: 10, // High priority for financial events
+  // ─── Contract events queue ───────────────────────────────────────────────────
+
+  async processDonationEvent(data: ContractEventData): Promise<Job<ContractEventData>> {
+    const enriched = this.enrich(data);
+    logger.info('queue.enqueue', {
+      queue: 'contract-events-queue',
+      job: 'process-donation',
+      correlationId: enriched._meta?.correlationId,
+    });
+    return this.contractEventsQueue.add('process-donation', enriched, {
+      ...this.contractJobOptions(),
+      priority: 10, // highest priority for financial events
     });
   }
 
-  async processCampaignCreatedEvent(data: ContractEventData) {
-    return await this.contractEventsQueue.add(
-      'process-campaign-created',
-      data,
-      {
-        ...this.config.defaultJobOptions,
-      },
-    );
-  }
-
-  async processCampaignFundedEvent(data: ContractEventData) {
-    return await this.contractEventsQueue.add('process-campaign-funded', data, {
-      ...this.config.defaultJobOptions,
-      priority: 8, // High priority
+  async processCampaignCreatedEvent(data: ContractEventData): Promise<Job<ContractEventData>> {
+    const enriched = this.enrich(data);
+    return this.contractEventsQueue.add('process-campaign-created', enriched, {
+      ...this.contractJobOptions(),
     });
   }
 
-  async processWithdrawalEvent(data: ContractEventData) {
-    return await this.contractEventsQueue.add('process-withdrawal', data, {
-      ...this.config.defaultJobOptions,
-      priority: 10, // High priority for financial events
+  async processCampaignFundedEvent(data: ContractEventData): Promise<Job<ContractEventData>> {
+    const enriched = this.enrich(data);
+    return this.contractEventsQueue.add('process-campaign-funded', enriched, {
+      ...this.contractJobOptions(),
+      priority: 8,
     });
   }
 
-  async processMilestoneReleasedEvent(data: ContractEventData) {
-    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
-    logger.info('queue.enqueue', { queue: 'contract-events-queue', job: 'process-milestone-released', correlationId: correlation.get().correlationId });
-    return await this.contractEventsQueue.add('process-milestone-released', enriched, {
-      ...this.config.defaultJobOptions,
-      priority: 9, // High priority for milestone releases
+  async processWithdrawalEvent(data: ContractEventData): Promise<Job<ContractEventData>> {
+    const enriched = this.enrich(data);
+    return this.contractEventsQueue.add('process-withdrawal', enriched, {
+      ...this.contractJobOptions(),
+      priority: 10,
     });
   }
 
-  // Analytics queue methods
-  async trackPageView(data: AnalyticsEventData) {
-    const enriched = { ...data, _meta: { correlationId: correlation.get().correlationId } } as any;
-    logger.info('queue.enqueue', { queue: 'analytics-queue', job: 'track-page-view', correlationId: correlation.get().correlationId });
-    return await this.analyticsQueue.add('track-page-view', enriched, {
-      ...this.config.defaultJobOptions,
-      priority: 1, // Low priority
+  async processMilestoneReleasedEvent(data: ContractEventData): Promise<Job<ContractEventData>> {
+    const enriched = this.enrich(data);
+    logger.info('queue.enqueue', {
+      queue: 'contract-events-queue',
+      job: 'process-milestone-released',
+      correlationId: enriched._meta?.correlationId,
+    });
+    return this.contractEventsQueue.add('process-milestone-released', enriched, {
+      ...this.contractJobOptions(),
+      priority: 9,
     });
   }
 
-  async trackUserAction(data: AnalyticsEventData) {
-    return await this.analyticsQueue.add('track-user-action', data, {
-      ...this.config.defaultJobOptions,
-      priority: 3, // Medium priority
+  // ─── Analytics queue ─────────────────────────────────────────────────────────
+
+  async trackPageView(data: AnalyticsEventData): Promise<Job<AnalyticsEventData>> {
+    const enriched = this.enrich(data);
+    logger.info('queue.enqueue', {
+      queue: 'analytics-queue',
+      job: 'track-page-view',
+      correlationId: enriched._meta?.correlationId,
+    });
+    return this.analyticsQueue.add('track-page-view', enriched, {
+      ...this.analyticsJobOptions(),
+      priority: 1,
     });
   }
 
-  async trackCampaignView(data: AnalyticsEventData) {
-    return await this.analyticsQueue.add('track-campaign-view', data, {
-      ...this.config.defaultJobOptions,
-      priority: 2, // Low-medium priority
+  async trackUserAction(data: AnalyticsEventData): Promise<Job<AnalyticsEventData>> {
+    const enriched = this.enrich(data);
+    return this.analyticsQueue.add('track-user-action', enriched, {
+      ...this.analyticsJobOptions(),
+      priority: 3,
     });
   }
 
-  async trackDonationCompleted(data: AnalyticsEventData) {
-    return await this.analyticsQueue.add('track-donation-completed', data, {
-      ...this.config.defaultJobOptions,
-      priority: 5, // Medium-high priority
+  async trackCampaignView(data: AnalyticsEventData): Promise<Job<AnalyticsEventData>> {
+    const enriched = this.enrich(data);
+    return this.analyticsQueue.add('track-campaign-view', enriched, {
+      ...this.analyticsJobOptions(),
+      priority: 2,
     });
   }
 
-  // Queue management methods
+  async trackDonationCompleted(data: AnalyticsEventData): Promise<Job<AnalyticsEventData>> {
+    const enriched = this.enrich(data);
+    return this.analyticsQueue.add('track-donation-completed', enriched, {
+      ...this.analyticsJobOptions(),
+      priority: 5,
+    });
+  }
+
+  // ─── Queue stats ─────────────────────────────────────────────────────────────
+
   async getQueueStats() {
-    const [emailStats, contractStats, analyticsStats] = await Promise.all([
-      this.getEmailQueueStats(),
-      this.getContractEventsQueueStats(),
-      this.getAnalyticsQueueStats(),
+    const [email, contractEvents, analytics, dlq] = await Promise.all([
+      this.getQueueCounts(this.emailQueue),
+      this.getQueueCounts(this.contractEventsQueue),
+      this.getQueueCounts(this.analyticsQueue),
+      this.dlqService.getDlqSummary(),
     ]);
 
     return {
-      email: emailStats,
-      contractEvents: contractStats,
-      analytics: analyticsStats,
+      queues: { email, contractEvents, analytics },
+      deadLetterQueues: dlq,
+      metrics: this.metrics.snapshot(),
     };
   }
 
-  private async getEmailQueueStats() {
+  // ─── DLQ replay ──────────────────────────────────────────────────────────────
+
+  /**
+   * Replay a single job from a DLQ back to its origin queue.
+   * @param dlqName  e.g. 'email-queue-dlq'
+   * @param jobId    The job id in the DLQ
+   */
+  async replayDlqJob(
+    dlqName: string,
+    jobId: string | number,
+  ): Promise<{ newJobId: string | number }> {
+    this.nestLogger.log(`Replaying DLQ job ${jobId} from ${dlqName}`);
+    return this.dlqService.replayJob(dlqName, jobId);
+  }
+
+  /**
+   * Replay all waiting/failed jobs in a given DLQ.
+   * @param dlqName  e.g. 'contract-events-queue-dlq'
+   */
+  async replayAllDlqJobs(dlqName: string): Promise<{ replayed: number }> {
+    this.nestLogger.log(`Replaying all jobs from ${dlqName}`);
+    return this.dlqService.replayAll(dlqName);
+  }
+
+  // ─── Internals ───────────────────────────────────────────────────────────────
+
+  /** Attach correlation context to job payload. */
+  private enrich<T extends { _meta?: { correlationId?: string } }>(data: T): T {
     return {
-      waiting: await this.emailQueue.getWaiting().then((jobs) => jobs.length),
-      active: await this.emailQueue.getActive().then((jobs) => jobs.length),
-      completed: await this.emailQueue
-        .getCompleted()
-        .then((jobs) => jobs.length),
-      failed: await this.emailQueue.getFailed().then((jobs) => jobs.length),
-      delayed: await this.emailQueue.getDelayed().then((jobs) => jobs.length),
+      ...data,
+      _meta: {
+        ...data._meta,
+        correlationId: data._meta?.correlationId ?? correlation.get().correlationId,
+      },
     };
   }
 
-  private async getContractEventsQueueStats() {
+  private emailJobOptions() {
     return {
-      waiting: await this.contractEventsQueue
-        .getWaiting()
-        .then((jobs) => jobs.length),
-      active: await this.contractEventsQueue
-        .getActive()
-        .then((jobs) => jobs.length),
-      completed: await this.contractEventsQueue
-        .getCompleted()
-        .then((jobs) => jobs.length),
-      failed: await this.contractEventsQueue
-        .getFailed()
-        .then((jobs) => jobs.length),
-      delayed: await this.contractEventsQueue
-        .getDelayed()
-        .then((jobs) => jobs.length),
+      ...this.config.defaultJobOptions,
+      timeout: this.config.queues.email.timeout,
     };
   }
 
-  private async getAnalyticsQueueStats() {
+  private contractJobOptions() {
     return {
-      waiting: await this.analyticsQueue
-        .getWaiting()
-        .then((jobs) => jobs.length),
-      active: await this.analyticsQueue.getActive().then((jobs) => jobs.length),
-      completed: await this.analyticsQueue
-        .getCompleted()
-        .then((jobs) => jobs.length),
-      failed: await this.analyticsQueue.getFailed().then((jobs) => jobs.length),
-      delayed: await this.analyticsQueue
-        .getDelayed()
-        .then((jobs) => jobs.length),
+      ...this.config.defaultJobOptions,
+      timeout: this.config.queues.contractEvents.timeout,
     };
+  }
+
+  private analyticsJobOptions() {
+    return {
+      ...this.config.defaultJobOptions,
+      timeout: this.config.queues.analytics.timeout,
+    };
+  }
+
+  private async getQueueCounts(queue: Queue) {
+    const [waiting, active, completed, failed, delayed] = await Promise.all([
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+      queue.getCompletedCount(),
+      queue.getFailedCount(),
+      queue.getDelayedCount(),
+    ]);
+    return { waiting, active, completed, failed, delayed };
   }
 }
