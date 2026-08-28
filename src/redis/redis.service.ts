@@ -130,7 +130,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       multi: ReturnType<Redis['multi']>,
     ) => ReturnType<Redis['multi']>,
   ): Promise<Record<string, unknown>[] | null> {
-    const watch = this.redis.watch(...keys);
+    await this.redis.watch(...keys);
     try {
       const multi = this.redis.multi();
       operations(multi);
@@ -147,7 +147,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       throw error;
     } finally {
-      await watch.unwatch();
+      // Unwatch releases the WATCH on all keys if the transaction was aborted
+      await this.redis.unwatch();
     }
   }
 }

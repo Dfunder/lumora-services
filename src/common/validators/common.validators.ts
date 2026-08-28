@@ -267,7 +267,9 @@ export function IsValidTxHash(validationOptions?: ValidationOptions) {
 }
 
 /**
- * Validates that a string is a valid contract ID
+ * Validates that a string is a valid Soroban contract ID.
+ * Soroban contract IDs are Strkey-encoded (base32, starting with 'C', 56 chars).
+ * Also accepts legacy hex contract IDs for backward compatibility.
  */
 export function IsValidContractId(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string) {
@@ -278,12 +280,14 @@ export function IsValidContractId(validationOptions?: ValidationOptions) {
       options: validationOptions,
       validator: {
         validate(value: any) {
-          if (typeof value !== 'string') return false;
-          // Contract IDs are typically hex strings, varying length
+          if (typeof value !== 'string' || value.length === 0) return false;
+          // Soroban Strkey contract ID: starts with 'C', 56 chars, base32 alphabet
+          if (/^C[A-Z2-7]{55}$/.test(value)) return true;
+          // Legacy hex format (backward compat)
           return /^[a-fA-F0-9]+$/.test(value) && value.length >= 1;
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a valid hexadecimal contract ID.`;
+          return `${args.property} must be a valid Soroban contract ID (Strkey starting with 'C') or a hex contract ID.`;
         },
       },
     });

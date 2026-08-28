@@ -1,9 +1,11 @@
 import { NestFactory } from '@nestjs/core';
-import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, ValidationPipe, HttpStatus } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { GlobalHttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ValidationError } from 'class-validator';
 import { AppModule } from './app.module';
+import { ApiException } from './common/errors/api-exception';
+import { ErrorCode } from './common/errors/error-codes';
 import * as Sentry from '@sentry/node';
 import { WinstonModule } from 'nest-winston';
 import { winstonConfig } from './common/logger/winston.config';
