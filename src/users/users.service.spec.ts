@@ -7,6 +7,7 @@ import { User } from '../auth/entities/user.entity';
 import { AdminSearchQueryDto } from './dto/admin-search-query.dto';
 import { PublicProfileDto } from './dto/public-profile.dto';
 import { AdminSearchResultItemDto } from './dto/admin-search-result.dto';
+import { RedisService } from '../redis/redis.service';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -37,6 +38,18 @@ describe('UsersService', () => {
     mockRepository = {
       findOne: jest.fn(),
       findAndCount: jest.fn(),
+      createQueryBuilder: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn(),
+      getRawMany: jest.fn(),
+    };
+
+    const mockRedisService = {
+      get: jest.fn(),
+      set: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -45,6 +58,10 @@ describe('UsersService', () => {
         {
           provide: getRepositoryToken(User),
           useValue: mockRepository,
+        },
+        {
+          provide: RedisService,
+          useValue: mockRedisService,
         },
       ],
     }).compile();
@@ -59,6 +76,7 @@ describe('UsersService', () => {
   describe('getPublicProfile', () => {
     it('should return public profile with allowlisted fields', async () => {
       mockRepository.findOne.mockResolvedValue(mockUser);
+      mockRepository.getRawOne.mockResolvedValue({ campaignCount: '2', totalRaised: '300' });
 
       const result = await service.getPublicProfile('GB123...');
 
@@ -71,7 +89,6 @@ describe('UsersService', () => {
       expect(result.totalRaised).toBe(300);
       expect(mockRepository.findOne).toHaveBeenCalledWith({
         where: { walletAddress: 'GB123...' },
-        relations: ['campaigns'],
       });
     });
 
@@ -84,6 +101,7 @@ describe('UsersService', () => {
   describe('searchUsers', () => {
     it('should return paginated admin search results', async () => {
       mockRepository.findAndCount.mockResolvedValue([[mockUser], 1]);
+      mockRepository.getRawMany.mockResolvedValue([{ userId: 'user-id', campaignCount: '2' }]);
 
       const query: AdminSearchQueryDto = { q: 'GB', page: 1, pageSize: 20 };
       const result = await service.searchUsers(query);
@@ -109,7 +127,6 @@ describe('UsersService', () => {
 
       expect(mockRepository.findAndCount).toHaveBeenCalledWith({
         where: { walletAddress: ILike('GA%') },
-        relations: ['campaigns'],
         skip: 0,
         take: 20,
         order: { createdAt: 'DESC' },
@@ -124,6 +141,30 @@ describe('UsersService', () => {
 
       expect(result.data).toHaveLength(0);
       expect(result.total).toBe(0);
+    });
+  });
+
+  describe('Query Performance Tests', () => {
+    it('getPublicProfile should execute within 100ms', async () => {
+      mockRepository.findOne.mockResolvedValue(mockUser);
+      mockRepository.getRawOne.mockResolvedValue({ campaignCount: '2', totalRaised: '300' });
+
+      const startTime = Date.now();
+      await service.getPublicProfile('GB123...');
+      const executionTime = Date.now() - startTime;
+
+      expect(executionTime).toBeLessThan(100);
+    });
+
+    it('searchUsers should execute within 100ms', async () => {
+      mockRepository.findAndCount.mockResolvedValue([[mockUser], 1]);
+      mockRepository.getRawMany.mockResolvedValue([{ userId: 'user-id', campaignCount: '2' }]);
+
+      const startTime = Date.now();
+      await service.searchUsers({ q: 'GB', page: 1, pageSize: 20 });
+      const executionTime = Date.now() - startTime;
+
+      expect(executionTime).toBeLessThan(100);
     });
   });
 });

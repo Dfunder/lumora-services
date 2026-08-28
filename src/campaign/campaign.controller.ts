@@ -231,7 +231,11 @@ export class CampaignsController {
     description: 'List of featured campaigns returned successfully',
   })
   @Get('featured')
-  async getFeaturedCampaigns() {
-    return await this.campaignsService.getFeaturedCampaigns();
+  async getFeaturedCampaigns(
+    @Req() req: any,
+  ) {
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 10;
+    return await this.campaignsService.getFeaturedCampaigns(page, pageSize);
   }
 }

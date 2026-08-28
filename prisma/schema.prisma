@@ -79,6 +79,8 @@ model User {
   @@index([email])
   @@index([role])
   @@index([createdAt])
+  @@index([role, createdAt])
+  @@index([isSuspended])
 }
 
 model Campaign {
@@ -111,6 +113,9 @@ model Campaign {
   @@index([createdAt])
   @@index([endDate])
   @@index([category])
+  @@index([status, createdAt])
+  @@index([creatorId, status])
+  @@index([isFeatured])
 }
 
 model Donation {

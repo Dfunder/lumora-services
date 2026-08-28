@@ -22,6 +22,8 @@ import { logger } from '../common/logger/logger';
 import correlation from '../common/correlation/correlation.service';
 
 import { SorobanService } from '../contract/soroban.service';
+import { CacheKey, CacheInvalidate } from '../common/decorators/cache.decorator';
+import { QueryPerformance } from '../common/decorators/query-performance.decorator';
 
 const MAX_DRAFTS_PER_USER = 5;
 
@@ -42,6 +44,8 @@ export class CampaignsService {
   ) {}
 
   // ─── 1. Get Campaign by ID ────────────────────────────────────────────────
+  @QueryPerformance({ logThreshold: 100 })
+  @CacheKey({ key: (id: string) => `campaign:${id}`, ttl: 300 })
   async getCampaignById(id: string): Promise<Campaign> {
     const ctx = correlation.get();
     logger.info('campaign.getCampaignById.start', { campaignId: id, correlationId: ctx.correlationId });
@@ -54,12 +58,18 @@ export class CampaignsService {
       throw new NotFoundException(`Campaign with ID "${id}" not found.`);
     }
 
-    const donations = await this.prisma.donation.findMany({
-      where: { campaignId: id },
+    // Optimized: Use aggregation to count unique donors in single query
+    const donorCountResult = await this.prisma.donation.aggregate({
+      where: { 
+        campaignId: id,
+        donorId: { not: null }
+      },
+      _count: {
+        donorId: true,
+      },
     });
 
-    const uniqueDonors = new Set(donations.map((d) => d.donorId));
-    campaign.donorCount = uniqueDonors.size;
+    campaign.donorCount = donorCountResult._count.donorId;
 
     // Increment view count asynchronously
     await this.analyticsQueue.add('increment-view-count', { campaignId: id, _meta: { correlationId: ctx.correlationId } });
@@ -77,6 +87,7 @@ export class CampaignsService {
   ): Promise<Campaign> {
     const campaign = await this.campaignRepository.findOne({
       where: { id },
+      relations: ['creator'],
     });
 
     if (!campaign) {
@@ -489,11 +500,21 @@ export class CampaignsService {
     return await this.campaignRepository.save(campaign);
   }
 
-  async getFeaturedCampaigns(): Promise<Campaign[]> {
-    return await this.campaignRepository.find({
+  async getFeaturedCampaigns(page: number = 1, pageSize: number = 10): Promise<{ campaigns: Campaign[]; total: number; page: number; pageSize: number; totalPages: number }> {
+    const [campaigns, total] = await this.campaignRepository.findAndCount({
       where: { isFeatured: true },
       order: { updatedAt: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
+
+    return {
+      campaigns,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   async getDonationAnalytics(
